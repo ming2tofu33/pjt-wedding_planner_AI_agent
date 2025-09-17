@@ -128,7 +128,7 @@ def main():
 
     # update
     s = sub.add_parser("update"); s.add_argument("--id", type=int, required=True)
-    s.add_argument("--title"); s.add_argument("--due"); s.add_argument("--source"); s.add_argument("--notes")
+    s.add_argument("--title"); s.add_argument("--due-date"); s.add_argument("--source"); s.add_argument("--notes")
     s.add_argument("--done", type=int, choices=[0,1])
 
     # delete
