@@ -7,4 +7,4 @@ with sqlite3.connect("marryroute.db") as c:
         WHERE NOT EXISTS (SELECT 1 FROM user_profile WHERE user_id=1)
     """)
     c.commit()
-print("✅ user_profile(1) 준비 완료")
+print("✅ user_profile 준비 완료")
