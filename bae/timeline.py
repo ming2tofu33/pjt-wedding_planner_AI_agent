@@ -159,7 +159,7 @@ def main():
         print("⏪ 미완료 처리" if set_done(db, args.id, 0) else "⚠️ 대상 없음")
 
     elif args.cmd == "update":
-        fields = {k:v for k,v in vars(args).items() if k in {"title","due","source","notes"} and v is not None}
+        fields = {k:v for k,v in vars(args).items() if k in {"title","due_date","source","notes"} and v is not None}
         if args.done is not None: fields["completed"] = int(bool(args.done))
         print("✅ 업데이트됨" if update_item(db, args.id, **fields) else "⚠️ 대상 없음")
 
