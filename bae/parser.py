@@ -1,4 +1,5 @@
-# 목적: 한국어 입력에서 날짜/지역/카테고리별 예산(만원) 추출 → JSON
+# parser.py
+# 목적: 한국어 입력에서 날짜/지역/카테고리별 예산(만원) + 예식 장소 추출 → JSON
 import re, json, argparse
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -18,28 +19,27 @@ ALL_CAT_KEYS: List[str] = [k for keys in CAT_MAP.values() for k in keys]
 CAT_KEYS_SORTED = sorted(ALL_CAT_KEYS, key=len, reverse=True)
 CAT_BOUNDARY_RE = re.compile("|".join(map(re.escape, CAT_KEYS_SORTED)))
 
+# ---------------- 금액 파싱 ----------------
 def _to_manwon(num_str: str, unit_hint: Optional[str]) -> float:
     v = float(num_str)
     if unit_hint is None: return v
-    unit = unit_hint.replace(" ", "")
-    if unit in ("만원", "만"): return v
-    if unit == "원": return v/10000.0
-    if unit == "천원": return (v*1000)/10000.0
-    if unit in ("백만원","백만"): return v*100.0
-    if unit in ("억원","억"):     return v*10000.0
+    u = unit_hint.replace(" ", "")
+    if u in ("만원","만"): return v
+    if u == "원": return v/10000.0
+    if u == "천원": return (v*1000)/10000.0
+    if u in ("백만원","백만"): return v*100.0
+    if u in ("억원","억"): return v*10000.0
     return v
 
 def parse_amount_block(s: str):
-    t = s.replace(" ", "")
+    t = s.replace(" ","")
     m = re.search(r'(\d+(?:\.\d+)?)[±\+\-]\s*(\d+(?:\.\d+)?)(만원|만|원|천원|백만원|백만|억|억원)?', t)
     if m:
-        base = _to_manwon(m.group(1), None)
-        delta = _to_manwon(m.group(2), m.group(3))
+        base = _to_manwon(m.group(1), None); delta = _to_manwon(m.group(2), m.group(3))
         return max(0, base-delta), base+delta, "plusminus"
     m = re.search(r'(\d+(?:\.\d+)?)\s*[~\-]\s*(\d+(?:\.\d+)?)(만원|만|원|천원|백만원|백만|억|억원)?', t)
     if m:
-        a = _to_manwon(m.group(1), None)
-        b = _to_manwon(m.group(2), m.group(3))
+        a = _to_manwon(m.group(1), None); b = _to_manwon(m.group(2), m.group(3))
         lo, hi = sorted([a,b]); return lo, hi, "range"
     m = re.search(r'(\d+(?:\.\d+)?)(만원|만|원|천원|백만원|백만|억|억원)?(이하|최대|상한|까지)', t)
     if m: hi = _to_manwon(m.group(1), m.group(2)); return None, hi, "le"
@@ -53,6 +53,7 @@ def parse_amount_block(s: str):
     if m: x = _to_manwon(m.group(1), m.group(2)); return x, x, "single"
     return None, None, "none"
 
+# ---------------- 날짜 파싱 ----------------
 DATE_PAT_FULL = re.compile(r'(?P<y>20\d{2})[.\-/](?P<m>\d{1,2})[.\-/](?P<d>\d{1,2})')
 DATE_PAT_MD   = re.compile(r'(?P<m>\d{1,2})[.\-/](?P<d>\d{1,2})')
 DATE_PAT_MKOR = re.compile(r'(?P<m>\d{1,2})\s*월\s*(?P<d>\d{1,2})\s*일')
@@ -68,7 +69,7 @@ def _has_date_context(text: str, start: int, end: int) -> bool:
     win = text[max(0,start-15):min(len(text), end+15)]
     return any(k in win for k in DATE_CLUES) or ("월" in win or "일" in win)
 
-def _near_category(text: str, start: int, distance: int = 8) -> bool:
+def _near_category(text: str, start: int, distance: int = 24) -> bool:
     left = text[max(0, start-distance):start]
     return any(k in left for k in ALL_CAT_KEYS)
 
@@ -77,7 +78,7 @@ def parse_dates(text: str):
     for m in DATE_PAT_FULL.finditer(text):
         y, mm, dd = int(m.group("y")), int(m.group("m")), int(m.group("d"))
         try:
-            dt = datetime(y, mm, dd).strftime("%Y-%m-%d")
+            dt = datetime(y, mm, dd).strftime("%Y-%m-%d"); 
             if dt not in out: out.append(dt)
         except ValueError: pass
     for m in DATE_PAT_MKOR.finditer(text):
@@ -97,27 +98,14 @@ def parse_dates(text: str):
         except ValueError: pass
     return out
 
-# ↓↓↓ 핵심 수정: 접미 뒤에 문자가 오면 매칭 금지(부분매치 차단)
-REGION_PAT = re.compile(r'([가-힣A-Za-z0-9]+?)\s*(역|권|구|동)(?![가-힣A-Za-z0-9])')
-
-def parse_regions_scoped(text: str):
-    globals_, by_cat = [], {}
-    for m in REGION_PAT.finditer(text):
-        token = (m.group(1) + m.group(2)).strip()
-        s = m.start()
-        if _near_category(text, s, distance=8):
-            for cat, keys in CAT_MAP.items():
-                left = text[max(0, s-12):s]
-                if any(k in left for k in keys):
-                    by_cat.setdefault(cat, [])
-                    if token not in by_cat[cat]: by_cat[cat].append(token)
-                    break
-        else:
-            if token not in globals_: globals_.append(token)
-    return globals_, by_cat
+# ---------------- 지역(전역/카테고리) ----------------
+# 핵심 수정: 조사(이/가/은/는/을/를/에서/으로/로/에/와/과/도/만/까지/부터)가 뒤에 와도 매칭되도록 허용
+REGION_PAT = re.compile(
+    r'([가-힣A-Za-z0-9]+?)\s*(역|권|구|동)'
+    r'(?=$|\s|[,.!?]|이|가|은|는|을|를|에서|으로|로|에|와|과|도|만|까지|부터)'
+)
 
 BOUNDARY_PUNC_RE = re.compile(r'[\.!\?;,\n]')
-CAT_BOUNDARY_RE  = CAT_BOUNDARY_RE  # reuse
 
 def _window_after_keyword(text: str, start_idx: int, max_len: int = 40) -> str:
     end_limit = min(len(text), start_idx + max_len)
@@ -129,6 +117,23 @@ def _window_after_keyword(text: str, start_idx: int, max_len: int = 40) -> str:
     cut = min(candidates) if candidates else end_limit
     return text[start_idx:cut]
 
+def parse_regions_scoped(text: str):
+    globals_, by_cat = [], {}
+    for m in REGION_PAT.finditer(text):
+        token = (m.group(1) + m.group(2)).strip()
+        s = m.start()
+        if _near_category(text, s, distance=24):
+            for cat, keys in CAT_MAP.items():
+                left = text[max(0, s-32):s]
+                if any(k in left for k in keys):
+                    by_cat.setdefault(cat, [])
+                    if token not in by_cat[cat]: by_cat[cat].append(token)
+                    break
+        else:
+            if token not in globals_: globals_.append(token)
+    return globals_, by_cat
+
+# ---------------- 카테고리 예산 ----------------
 def parse_category_budgets(text: str):
     results: List[Dict[str, Any]] = []
     errors:  List[Dict[str, Any]] = []
@@ -157,11 +162,31 @@ def parse_category_budgets(text: str):
     for r in results: by_cat[r["category"]] = r
     return list(by_cat.values()), errors
 
-def detect_wedding_event(text: str, dates: List[str]):
-    if any(kw in text for kw in EVENT_WEDDING) and dates:
-        return {"type":"wedding","date":dates[0]}
-    return None
+# ---------------- 예식 이벤트(날짜/장소) ----------------
+EVENT_LOC_FREE_PAT = re.compile(
+    r'(?:은|는|이|가|을|를|에서|에|로)?\s*([가-힣A-Za-z]{2,6})(?:역|동|구|권)?\s*(?=에서|에|로|할|진행|예정|좋아|할거|할께|할게|싶어|찾|추천|$)'
+)
 
+def detect_wedding_event(text: str, dates: List[str]):
+    if not any(kw in text for kw in EVENT_WEDDING):
+        return None
+    date = dates[0] if dates else None
+    mkw = None
+    for kw in EVENT_WEDDING:
+        x = re.search(re.escape(kw), text)
+        if x: mkw = x; break
+    tail = text[mkw.end():] if mkw else text
+    m1 = REGION_PAT.search(tail)
+    if m1:
+        loc = (m1.group(1) + m1.group(2)).strip()
+        return {"type":"wedding", "date": date, "location": loc}
+    m2 = EVENT_LOC_FREE_PAT.search(tail)
+    if m2:
+        loc = m2.group(1).strip()
+        return {"type":"wedding", "date": date, "location": loc}
+    return {"type":"wedding", "date": date}
+
+# ---------------- 메인 ----------------
 def parse_text(text: str):
     text_norm = re.sub(r'\s+', ' ', text.strip())
     dates = parse_dates(text_norm)
@@ -181,10 +206,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["parse"])
     ap.add_argument("--text"); ap.add_argument("--file")
-    args = ap.parse_args()
-    if args.mode == "parse":
-        text = open(args.file,"r",encoding="utf-8").read() if args.file else (args.text or "")
-        print(json.dumps(parse_text(text), ensure_ascii=False, indent=2))
+    a = ap.parse_args()
+    txt = open(a.file,"r",encoding="utf-8").read() if a.file else (a.text or "")
+    print(json.dumps(parse_text(txt), ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
     main()
