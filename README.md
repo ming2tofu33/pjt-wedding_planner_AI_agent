@@ -208,10 +208,10 @@ re
 
 ## 📞 연락처
 
-- **이메일**: contact@marryroute.app (예정)
+- **이메일**: contact@marryroute.gmail.com (예정)
 - **개발자**: 배&민 공동 개발 🛵
-[[GitHub 프로필](https://github.com/baesisi3648)]
-[[GitHub 프로필](https://github.com/ming2tofu33)]
+    - [[GitHub Profile: baesisi3648](https://github.com/baesisi3648)]
+    - [[GitHub Profile: ming2tofu33](https://github.com/ming2tofu33)]
 
 ---
 
