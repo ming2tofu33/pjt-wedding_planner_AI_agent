@@ -1,11 +1,12 @@
 PRAGMA foreign_keys = ON;
 
--- 업체(벤더)
+-- 업체
 CREATE TABLE IF NOT EXISTS vendor (
-  vendor_id   INTEGER PRIMARY KEY AUTOINCREMENT, -- 내부 식별자
+  vendor_id   INTEGER PRIMARY KEY AUTOINCREMENT, -- 내부 ID
   type        TEXT NOT NULL,                     -- hall|studio|dress|makeup
-  name        TEXT NOT NULL,                     -- 업체/브랜드명(엑셀 conm 매핑)
-  region      TEXT,                              -- 지역(엑셀 subway 매핑 가능)
+  name        TEXT NOT NULL,                     -- 업체명(conm)
+  region      TEXT,                              -- 지역/역명(subway)
+  min_price   INTEGER,                           -- 최소가(원), CSV min_fee 환산 저장
   notes       TEXT
 );
 
@@ -13,12 +14,15 @@ CREATE TABLE IF NOT EXISTS vendor (
 CREATE TABLE IF NOT EXISTS offering (
   offering_id  INTEGER PRIMARY KEY AUTOINCREMENT,
   vendor_id    INTEGER NOT NULL REFERENCES vendor(vendor_id) ON DELETE CASCADE,
-  category     TEXT NOT NULL,                    -- hall_package|studio_shoot|...
-  package_name TEXT,                             -- ex) allday|manager|meal_expense
-  price        INTEGER,                          -- KRW 정수
+  category     TEXT NOT NULL,                    -- hall_package|studio_shoot|dress_rental|makeup_package
+  package_name TEXT,                             -- ex) allday|manager|meal_expense...
+  price        INTEGER,                          -- 원(KRW)
   meta_json    TEXT                              -- 옵션/부가정보(JSON)
 );
 
-CREATE INDEX IF NOT EXISTS idx_vendor_type   ON vendor(type);
-CREATE INDEX IF NOT EXISTS idx_offering_vndr ON offering(vendor_id);
-CREATE INDEX IF NOT EXISTS idx_offering_cat  ON offering(category);
+-- 조회용 인덱스
+CREATE INDEX IF NOT EXISTS idx_vendor_type       ON vendor(type);
+CREATE INDEX IF NOT EXISTS idx_vendor_min_price  ON vendor(min_price);
+CREATE INDEX IF NOT EXISTS idx_offering_vendor   ON offering(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_offering_cat      ON offering(category);
+
