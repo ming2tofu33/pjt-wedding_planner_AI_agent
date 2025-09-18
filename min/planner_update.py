@@ -1,207 +1,234 @@
-# 목적: 자연어 입력 → parser.py → DB 반영(프로필/예산/이벤트 upsert) → 최신 요약 갱신
-import argparse, sqlite3, json, re
-from datetime import datetime
+# 목적: 사용자의 자연어 한 문장을 파싱하여 DB(user_profile, budget_pref, event, conversation_summary)에 반영
+
+import sqlite3, re, datetime
 from typing import Dict, Any, List, Optional
 from parser import parse_text
 
-DB_DEFAULT = "marryroute.db"
+MIN_REQ_MANWON = {"hall": 100, "studio": 30, "dress": 50, "makeup": 10}
 
-def _conn(db_path: str):
-    c = sqlite3.connect(db_path); c.row_factory = sqlite3.Row
+# 장소 조사 제거
+_LOC_TAIL = r"(에서|으로|로|에|쪽|근처)$"
+def _clean_location(loc: Optional[str]) -> Optional[str]:
+    if not loc:
+        return loc
+    s = loc.strip()
+    s = re.sub(rf"\s*{_LOC_TAIL}", "", s)
+    return s.strip()
+
+def _conn(db: str):
+    c = sqlite3.connect(db)
+    c.row_factory = sqlite3.Row
     return c
 
-def _ensure_user(db: str, user_id: int = 1):
+# ---- 스키마 보정 ----
+def _has_column(conn: sqlite3.Connection, table: str, col: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any((r[1].lower() == col.lower()) for r in rows)
+
+def _ensure_conversation_summary(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS conversation_summary (
+            user_id INTEGER PRIMARY KEY,
+            summary TEXT,
+            updated_at TEXT
+        )
+    """)
+    if not _has_column(conn, "conversation_summary", "summary"):
+        conn.execute("ALTER TABLE conversation_summary ADD COLUMN summary TEXT")
+    if not _has_column(conn, "conversation_summary", "updated_at"):
+        conn.execute("ALTER TABLE conversation_summary ADD COLUMN updated_at TEXT")
+
+def _ensure_user_profile(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_profile (
+            user_id INTEGER PRIMARY KEY,
+            region TEXT
+        )
+    """)
+
+# ---- Upsert ----
+def _upsert_profile_region(conn: sqlite3.Connection, region: Optional[str]):
+    if region is None: return
+    _ensure_user_profile(conn)
+    conn.execute("INSERT OR IGNORE INTO user_profile(user_id, region) VALUES(1, NULL)")
+    conn.execute("UPDATE user_profile SET region=? WHERE user_id=1", (region,))
+
+def _get_existing_wedding(conn: sqlite3.Connection) -> Dict[str, Optional[str]]:
+    r = conn.execute("SELECT date, time, location, budget_manwon FROM event WHERE type='wedding' ORDER BY event_id DESC LIMIT 1").fetchone()
+    if not r:
+        return {"date": None, "time": None, "location": None, "budget": None}
+    return {"date": r["date"], "time": r["time"], "location": r["location"], "budget": r["budget_manwon"]}
+
+def _upsert_wedding_event(conn: sqlite3.Connection, ev: Dict[str, Any]):
+    cur = conn.execute("SELECT event_id, date, time, location, budget_manwon FROM event WHERE type='wedding' ORDER BY event_id DESC LIMIT 1")
+    row = cur.fetchone()
+    incoming_date   = ev.get("date")
+    incoming_time   = ev.get("time")
+    incoming_loc    = _clean_location(ev.get("location"))
+    incoming_budget = ev.get("budget_manwon")
+
+    if row:
+        date = incoming_date or row["date"]
+        time = incoming_time or row["time"]
+        loc  = incoming_loc  or row["location"]
+        bud  = incoming_budget if incoming_budget is not None else row["budget_manwon"]
+        conn.execute("UPDATE event SET date=?, time=?, location=?, budget_manwon=? WHERE event_id=?",
+                     (date, time, loc, bud, row["event_id"]))
+    else:
+        conn.execute(
+            "INSERT INTO event(type, title, date, time, location, budget_manwon) VALUES(?,?,?,?,?,?)",
+            ("wedding", "결혼식", incoming_date, incoming_time, incoming_loc, incoming_budget)
+        )
+
+def _set_budget_pref(conn: sqlite3.Connection, cat: str, lo: Optional[int], hi: Optional[int], region_note: Optional[str]):
+    # 항상 단일값 덮어쓰기 보장: "지역:청담역" 형식으로 저장
+    note_val = f"지역:{_clean_location(region_note)}" if region_note else None
+    r = conn.execute("SELECT 1 FROM budget_pref WHERE user_id=? AND category=?", (1, cat)).fetchone()
+    if r:
+        if lo is not None:
+            conn.execute("UPDATE budget_pref SET min_manwon=? WHERE user_id=? AND category=?", (lo, 1, cat))
+        if hi is not None:
+            conn.execute("UPDATE budget_pref SET max_manwon=? WHERE user_id=? AND category=?", (hi, 1, cat))
+        if region_note is not None:
+            conn.execute("UPDATE budget_pref SET notes=? WHERE user_id=? AND category=?", (note_val, 1, cat))
+    else:
+        conn.execute(
+            "INSERT INTO budget_pref(user_id, category, min_manwon, max_manwon, notes) VALUES(?,?,?,?,?)",
+            (1, cat, lo, hi, note_val)
+        )
+
+def _save_summary(conn: sqlite3.Connection, text: str):
+    _ensure_conversation_summary(conn)
+    conn.execute("INSERT OR IGNORE INTO conversation_summary(user_id, summary, updated_at) VALUES(1, '', datetime('now'))")
+    conn.execute("UPDATE conversation_summary SET summary=?, updated_at=datetime('now') WHERE user_id=1", (text,))
+
+def _year_for_mmdd(mm: int, dd: int, keep_year: Optional[int] = None) -> int:
+    if keep_year: return keep_year
+    today = datetime.date.today()
+    y = today.year
+    try:
+        d = datetime.date(y, mm, dd)
+    except ValueError:
+        return y
+    return y if d >= today else y + 1
+
+def _merge_event_from_parsed(conn: sqlite3.Connection, ev: Dict[str, Any]):
+    ex = _get_existing_wedding(conn)
+    date_in = ev.get("date")  # "YYYY-MM-DD" or "MM/DD"
+    time_in = ev.get("time")
+    loc_in  = ev.get("location")
+    bud_in  = ev.get("budget_manwon")
+    if date_in and "/" in date_in and "-" not in date_in:
+        mm, dd = date_in.split("/")
+        yy = None
+        if ex.get("date"):
+            try: yy = int(ex["date"].split("-")[0])
+            except: yy = None
+        year = _year_for_mmdd(int(mm), int(dd), keep_year=yy)
+        date_in = f"{year}-{int(mm):02d}-{int(dd):02d}"
+    _upsert_wedding_event(conn, {"date": date_in, "time": time_in, "location": loc_in, "budget_manwon": bud_in})
+
+def _validate_budgets(collected: List[Dict[str, Any]]) -> List[str]:
+    msgs: List[str] = []
+    for b in collected:
+        cat = b["category"]
+        lo = b.get("min_manwon")
+        hi = b.get("max_manwon")
+        lo_chk = (lo is not None and lo < MIN_REQ_MANWON.get(cat, 0))
+        hi_chk = (hi is not None and hi < MIN_REQ_MANWON.get(cat, 0))
+        if lo_chk or hi_chk:
+            msgs.append(f"{cat} 예산이 너무 낮아요. 다시 입력해주세요.")
+    return msgs
+
+def _apply_updates(conn: sqlite3.Connection, parsed: Dict[str, Any]) -> List[str]:
+    reinputs: List[str] = []
+
+    # 1) 일반 지역 → 프로필 기본 지역
+    general_regions = parsed.get("regions") or []
+    if general_regions:
+        _upsert_profile_region(conn, general_regions[0])
+
+    # 2) 카테고리 지역/예산
+    cat_regions = parsed.get("category_regions") or {}
+    budgets     = parsed.get("budgets") or []
+
+    reinputs.extend(_validate_budgets(budgets))
+
+    for cat, reg in cat_regions.items():
+        _set_budget_pref(conn, cat, lo=None, hi=None, region_note=reg)
+
+    for b in budgets:
+        _set_budget_pref(conn, b["category"], b.get("min_manwon"), b.get("max_manwon"), None)
+
+    # 3) 예식 병합
+    for ev in (parsed.get("events") or []):
+        if (ev.get("type") or "").lower() == "wedding":
+            _merge_event_from_parsed(conn, ev)
+
+    return reinputs
+
+def _rows_to_budgets(rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
+    out = []
+    for r in rows:
+        out.append({
+            "category": r["category"],
+            "min_manwon": r["min_manwon"],
+            "max_manwon": r["max_manwon"],
+            "notes": r["notes"],
+        })
+    return out
+
+def _fetch_budgets(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT category, min_manwon, max_manwon, notes FROM budget_pref WHERE user_id=1 ORDER BY category"
+    ).fetchall()
+    return _rows_to_budgets(rows)
+
+def _fetch_profile_region(conn: sqlite3.Connection) -> Optional[str]:
+    r = conn.execute("SELECT region FROM user_profile WHERE user_id=1").fetchone()
+    return r["region"] if r and r["region"] else None
+
+def _fetch_wedding_date(conn: sqlite3.Connection) -> Optional[str]:
+    r = conn.execute("SELECT date FROM event WHERE type='wedding' ORDER BY event_id DESC LIMIT 1").fetchone()
+    return r["date"] if r and r["date"] else None
+
+def _fetch_state(db: str) -> Dict[str, Any]:
     with _conn(db) as c:
-        c.execute("""INSERT INTO user_profile(user_id,name,region,contact,notes)
-                     SELECT ?,NULL,NULL,NULL,NULL
-                     WHERE NOT EXISTS(SELECT 1 FROM user_profile WHERE user_id=?)""",(user_id,user_id))
-        c.commit()
-
-def upsert_region(db: str, region: Optional[str], user_id: int = 1):
-    if not region: return
-    with _conn(db) as c:
-        c.execute("UPDATE user_profile SET region=? WHERE user_id=?", (region, user_id)); c.commit()
-
-_REGION_PART_RE = re.compile(r' ?\|? ?지역:[^|]+')
-
-def _replace_region_in_notes(prev: Optional[str], new_regions: List[str]) -> Optional[str]:
-    """기존 메모에서 '지역:' 파트를 새 리스트로 교체(합치지 않음). 다른 메모는 유지."""
-    base = _REGION_PART_RE.sub("", (prev or "")).strip()
-    region_part = f"지역:{','.join(new_regions)}" if new_regions else ""
-    if base and region_part: return f"{base} | {region_part}"
-    return base or region_part or None
-
-def upsert_budget_pref(db: str, category: str,
-                       min_manwon: Optional[int], max_manwon: Optional[int],
-                       note_regions_replace: Optional[List[str]] = None,
-                       user_id: int = 1):
-    with _conn(db) as c:
-        row = c.execute("SELECT budget_id, notes FROM budget_pref WHERE user_id=? AND category=?",
-                        (user_id, category)).fetchone()
-        if row:
-            sets, params = [], []
-            if min_manwon is not None: sets.append("min_manwon=?"); params.append(min_manwon)
-            if max_manwon is not None: sets.append("max_manwon=?"); params.append(max_manwon)
-            if note_regions_replace is not None:
-                new_notes = _replace_region_in_notes(row["notes"], note_regions_replace)
-                sets.append("notes=?"); params.append(new_notes)
-            if sets:
-                params += [user_id, category]
-                c.execute(f"UPDATE budget_pref SET {', '.join(sets)} WHERE user_id=? AND category=?", params)
-        else:
-            notes = f"지역:{','.join(note_regions_replace)}" if note_regions_replace else None
-            c.execute("""INSERT INTO budget_pref(user_id,category,min_manwon,max_manwon,locked,notes)
-                         VALUES (?,?,?,?,0,?)""",
-                      (user_id, category, min_manwon, max_manwon, notes))
-        c.commit()
-
-def upsert_event(db: str, ev: Dict[str, Any], user_id: int = 1) -> int:
-    """
-    같은 type의 기존 레코드들을 병합 후 1건 유지.
-    새 필드는 우선 적용(없으면 기존 유지).
-    """
-    if not ev or not ev.get("type"): return 0
-    etype = ev.get("type")
-    new_fields = {k: ev.get(k) for k in ("title","date","time","location","budget_manwon") if ev.get(k) is not None}
-
-    with _conn(db) as c:
-        rows = c.execute("""SELECT event_id,title,date,time,location,budget_manwon
-                            FROM event WHERE user_id=? AND type=? ORDER BY event_id ASC""",
-                         (user_id, etype)).fetchall()
-        merged = {k: None for k in ("title","date","time","location","budget_manwon")}
-        keep_id = rows[0]["event_id"] if rows else None
-
-        # 기존 값 병합(앞에서부터 첫 non-null 채택)
-        for r in rows:
-            for k in merged.keys():
-                if merged[k] is None and r[k] is not None:
-                    merged[k] = r[k]
-
-        # 새 입력 덮어쓰기(날짜만 들어와도 location/budget 유지)
-        for k, v in new_fields.items():
-            merged[k] = v
-
-        if keep_id is None:
-            c.execute("""INSERT INTO event(user_id,type,title,date,time,location,budget_manwon,memo)
-                         VALUES (?,?,?,?,?,?,?,?)""",
-                      (user_id, etype, merged["title"], merged["date"], merged["time"],
-                       merged["location"], merged["budget_manwon"], None))
-            keep_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-        else:
-            sets = [f"{k}=?" for k in merged.keys()]
-            params = [merged[k] for k in merged.keys()] + [keep_id]
-            c.execute(f"UPDATE event SET {', '.join(sets)} WHERE event_id=?", params)
-        # 동일 type 나머지는 정리
-        c.execute("DELETE FROM event WHERE user_id=? AND type=? AND event_id<>?", (user_id, etype, keep_id))
-        c.commit()
-        return keep_id
-
-def _extract_region_from_notes(notes: Optional[str]) -> Optional[str]:
-    if not notes: return None
-    m = re.search(r'지역:([^|]+)', notes)
-    return m.group(1).strip() if m else None
-
-def _fmt_budget_line(cat: str, lo: Optional[int], hi: Optional[int], notes: Optional[str]) -> str:
-    def _p(v): return "-" if v is None else f"{v}만원"
-    if lo is None and hi is None: rng = "-"
-    elif lo is not None and hi is not None: rng = f"{_p(lo)} ~ {_p(hi)}"
-    elif lo is not None: rng = f"최소 {_p(lo)}"
-    else: rng = f"최대 {_p(hi)}"
-    reg = _extract_region_from_notes(notes)
-    return f"{cat}: {rng}" + (f" (지역:{reg})" if reg else "")
-
-def _fetch_state(db: str, user_id: int = 1) -> Dict[str, Any]:
-    with _conn(db) as c:
-        prof = c.execute("SELECT user_id,name,region,contact FROM user_profile WHERE user_id=?", (user_id,)).fetchone()
-        budgets = c.execute("""SELECT category,min_manwon,max_manwon,locked,notes
-                               FROM budget_pref WHERE user_id=? ORDER BY category""", (user_id,)).fetchall()
-        wedding = c.execute("""SELECT date FROM event
-                               WHERE user_id=? AND type='wedding' AND date IS NOT NULL
-                               ORDER BY event_id DESC LIMIT 1""", (user_id,)).fetchone()
-    return {"region": prof["region"] if prof else None,
-            "budgets": [dict(r) for r in budgets],
-            "wedding_date": wedding["date"] if wedding else None}
+        state = {
+            "region": _fetch_profile_region(c),
+            "budgets": _fetch_budgets(c),
+            "wedding_date": _fetch_wedding_date(c),
+        }
+    return state
 
 def build_summary_text(state: Dict[str, Any]) -> str:
-    lines = []
-    if state.get("wedding_date"): lines.append(f"예식: {state['wedding_date']}")
-    if state.get("region"):       lines.append(f"지역: {state['region']}")
-    if state.get("budgets"):
-        lines.append("예산: " + "; ".join(
-            _fmt_budget_line(b["category"], b["min_manwon"], b["max_manwon"], b.get("notes"))
-            for b in state["budgets"]
-        ))
-    return " / ".join(lines) if lines else "요약 정보 없음"
+    region = state.get("region") or "-"
+    wdate  = state.get("wedding_date") or "-"
+    parts = []
+    for b in (state.get("budgets") or []):
+        cat = b["category"]
+        lo, hi = b.get("min_manwon"), b.get("max_manwon")
+        notes = b.get("notes") or ""
+        if lo is not None and hi is not None:
+            rng = f"{lo}만원 ~ {hi}만원"
+        elif lo is not None:
+            rng = f"{lo}만원 이상"
+        elif hi is not None:
+            rng = f"최대 {hi}만원"
+        else:
+            rng = "-"
+        parts.append(f"{cat}: {rng}" + (f" ({notes})" if notes else ""))
+    budgets_str = "; ".join(parts) if parts else "-"
+    return f"예식: {wdate} / 지역: {region} / 예산: {budgets_str}"
 
-def set_latest_summary(db: str, content: str, user_id: int = 1) -> int:
-    now = datetime.now().isoformat(timespec="seconds")
+def update_from_text(db: str, text: str, dry_run: bool = False) -> Dict[str, Any]:
+    parsed = parse_text(text)
     with _conn(db) as c:
-        c.execute("UPDATE conversation_summary SET latest=0 WHERE user_id=? AND latest=1", (user_id,))
-        cur = c.execute("""INSERT INTO conversation_summary(user_id,latest,content,updated_at)
-                           VALUES(?,1,?,?)""", (user_id, content, now))
-        c.commit(); return cur.lastrowid
-
-def update_from_text(db: str, text: str, dry_run: bool = False, user_id: int = 1) -> Dict[str, Any]:
-    parsed = parse_text(text); _ensure_user(db, user_id)
-
-    to_commit = {"region": None, "budget_updates": [], "event": None}
-    # 전역 지역(문장 전반)
-    regs = parsed.get("regions") or []
-    if regs: to_commit["region"] = regs[0]
-
-    # 카테고리 지역: 이번 입력에 등장한 카테고리는 '교체' 정책
-    cat_regions = parsed.get("category_regions") or {}
-    seen = set()
-    for b in parsed.get("budgets", []):
-        cat, lo, hi = b["category"], b["min_manwon"], b["max_manwon"]
-        replace_regions = cat_regions.get(cat) if cat in cat_regions else None
-        to_commit["budget_updates"].append({
-            "category": cat, "min": lo, "max": hi,
-            "regions": replace_regions  # None이면 지역 변화 없음
-        })
-        seen.add(cat)
-    # 금액 없이 지역만 말한 카테고리도 교체 적용
-    for cat, regs2 in cat_regions.items():
-        if cat not in seen:
-            to_commit["budget_updates"].append({
-                "category": cat, "min": None, "max": None, "regions": regs2
-            })
-
-    # 이벤트
-    evs = parsed.get("events") or []
-    if evs: to_commit["event"] = evs[0]
-
-    # 재입력요청
-    reinput = [f"[{e.get('category','-')}] 다시 입력해주세요." for e in (parsed.get("errors") or [])]
-
-    if dry_run:
-        return {"parsed": parsed, "to_commit": to_commit, "reinput": reinput}
-
-    if to_commit["region"]:
-        upsert_region(db, to_commit["region"], user_id=user_id)
-    for u in to_commit["budget_updates"]:
-        upsert_budget_pref(db, u["category"], u["min"], u["max"], u["regions"], user_id=user_id)
-    if to_commit["event"]:
-        upsert_event(db, to_commit["event"], user_id=user_id)
-
-    state = _fetch_state(db, user_id=user_id)
-    sid = set_latest_summary(db, build_summary_text(state), user_id=user_id)
-    return {"parsed": parsed, "committed": state, "summary_id": sid, "reinput": reinput}
-
-def main():
-    ap = argparse.ArgumentParser(description="Planner Update: 자연어→DB 반영 & 요약 갱신")
-    ap.add_argument("--db", default=DB_DEFAULT)
-    ap.add_argument("--text"); ap.add_argument("--file"); ap.add_argument("--dry-run", action="store_true")
-    a = ap.parse_args()
-    txt = open(a.file,"r",encoding="utf-8").read() if a.file else (a.text or "")
-    if not txt.strip(): print("❌ 입력이 없습니다. --text 또는 --file 사용"); return
-    res = update_from_text(a.db, txt, dry_run=a.dry_run)
-    if a.dry_run: print("=== DRY RUN ===")
-    print("\n[재입력요청]"); print("- 없음" if not res["reinput"] else "\n".join(f"- {m}" for m in res["reinput"]))
-    print("\n[파싱결과]"); print(json.dumps(res["parsed"], ensure_ascii=False, indent=2))
-    if not a.dry_run:
-        print("\n[DB 반영 후 상태]"); print(json.dumps(res["committed"], ensure_ascii=False, indent=2))
-        print(f"\n✅ 최신 요약 저장 완료 (summary_id={res['summary_id']})")
-
-if __name__ == "__main__":
-    main()
+        if dry_run:
+            reinputs = _validate_budgets(parsed.get("budgets") or [])
+            state = _fetch_state(db)
+            return {"committed": state, "reinput": reinputs}
+        reinputs = _apply_updates(c, parsed)
+        state = _fetch_state(db)
+        _save_summary(c, build_summary_text(state))
+        return {"committed": state, "reinput": reinputs}
