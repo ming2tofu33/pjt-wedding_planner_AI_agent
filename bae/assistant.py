@@ -1,7 +1,7 @@
 # 목적: LLM + 툴콜 기반 대화형 웨딩플래너 (오프라인 백업 라우터 포함)
 # 실행: python assistant.py
 
-import os, json, sys, traceback
+import os, json, sys, re
 from typing import List, Dict, Any, Optional
 
 # --- (.env) 자동 로드 ---
@@ -53,11 +53,87 @@ def _pretty_items(items: List[Dict[str, Any]]) -> str:
         lines.append(f"{i}. {name} | {region} | {price}")
     return "\n".join(lines) if lines else "(결과 없음)"
 
+# -------- 선(先) 반영 가드레일 & 카테고리 추정 --------
+_BUDGET_TRIGGERS = [
+    r"\b예산\b", r"\b변경\b", r"바꿔", r"바꾸", r"설정", r"잡아줘",
+    r"이하", r"이상", r"[~\-–—]", r"만원", r"\d+\s*(?:만원|만|원)\b", r"\b\d{2,4}\b",
+    # 의지/선호/범위 표현
+    r"생각해", r"생각이야", r"할래", r"하고\s*싶", r"원해", r"좋[아을]", r"맞춰", r"맞출래",
+    r"정도", r"대로", r"잡자", r"잡을래", r"정해줘", r"정하자"
+]
+_CAT_HINTS = ["드레스","dress","메이크업","makeup","스튜디오","studio","홀","hall","예식","본식","결혼","웨딩"]
+
+_CAT_MAP_IN = {
+    "드레스":"dress","dress":"dress",
+    "메이크업":"makeup","메컵":"makeup","makeup":"makeup","헤어":"makeup","헤메":"makeup",
+    "스튜디오":"studio","studio":"studio","촬영":"studio","리허설":"studio","스냅":"studio",
+    "홀":"hall","웨딩홀":"hall","예식장":"hall","hall":"hall"
+}
+_KO_BY_CAT = {"dress":"드레스","makeup":"메이크업","studio":"스튜디오","hall":"홀"}
+
+def needs_state_update(text: str) -> bool:
+    if not text: return False
+    low = text.lower()
+    if any(h in text or h in low for h in _CAT_HINTS):
+        if any(re.search(p, text) for p in _BUDGET_TRIGGERS):
+            return True
+    # 숫자만/숫자+이하/이상 등 단독 입력
+    if re.search(r"^\s*\d+\s*(만원|만|원)?\s*(이하|이상|이내|초과|정도|대로)?\s*$", text):
+        return True
+    return False
+
+def _infer_recent_category(history: List[Dict[str,str]], fallback: Optional[str] = None) -> Optional[str]:
+    for m in reversed(history[-6:]):
+        t = (m.get("content") or "").lower()
+        for k, v in _CAT_MAP_IN.items():
+            if k.lower() in t:
+                return v
+    return fallback
+
+def _ensure_category_in_text(text: str, history: List[Dict[str,str]]) -> str:
+    # ex) "150 정도 생각해" → 최근 맥락이 드레스면 "드레스 150 정도 생각해"
+    bare = re.match(r"^\s*\d+\s*(만원|만|원)?\s*(이하|이상|이내|초과|정도|대로)?\s*$", text)
+    vague = (("예산" in text) or ("정도" in text) or ("대로" in text)) and not any(k in text for k in _KO_BY_CAT.values())
+    if bare or vague:
+        cat = _infer_recent_category(history)
+        if cat:
+            ko = _KO_BY_CAT.get(cat, cat)
+            return f"{ko} {text}"
+    return text
+
+def pre_update_if_needed(user_text: str, history: Optional[List[Dict[str,str]]] = None) -> Dict[str, Any]:
+    """
+    예산/변경 요청이면 DB에 먼저 반영하고,
+    LLM에 넘길 system 힌트와 사용자 프리픽스를 만들어 반환.
+    """
+    history = history or []
+    user_text = _ensure_category_in_text(user_text, history)
+
+    if not needs_state_update(user_text):
+        return {"did_update": False}
+
+    upd = tool_update_from_text(user_text, db=DB_DEFAULT)
+    state = upd.get("state") or {}
+    summary = upd.get("summary", "")
+    reinput = upd.get("reinput") or []
+
+    sys_hint = "[사전 반영 결과]\n" + (summary or "(요약없음)")
+    if reinput:
+        sys_hint += "\n[재입력요청]\n- " + "\n- ".join(reinput)
+
+    user_prefix = "[변경 적용 완료] " + summary if not reinput else "[재입력요청]\n" + "\n".join(f"- {m}" for m in reinput)
+
+    return {"did_update": True, "system_hint": sys_hint, "user_prefix": user_prefix, "state": state}
+
 # -------- 오프라인 라우터 --------
 def offline_route(user_text: str) -> str:
     out_lines = []
     try:
-        upd = tool_update_from_text(user_text, db=DB_DEFAULT)
+        if needs_state_update(user_text):
+            upd = tool_update_from_text(user_text, db=DB_DEFAULT)
+        else:
+            upd = {"summary": build_summary_text(_fetch_state(DB_DEFAULT)), "reinput": []}
+
         if upd.get("reinput"):
             out_lines.append("[재입력요청]")
             out_lines += [f"- {m}" for m in upd["reinput"]]
@@ -88,20 +164,29 @@ def offline_route(user_text: str) -> str:
     out_lines.append(_short_suggest())
     return "\n".join(out_lines)
 
-# -------- LLM 호출 루프 (툴콜 지원) --------
+# -------- LLM 호출 루프 (툴콜 지원 + 선반영 보조) --------
 def call_llm_with_tools(user_text: str, history: List[Dict[str,str]]) -> str:
     """
-    - build_messages(...)로 컨텍스트 구성
-    - tool_calls가 나오면: 그 assistant 메시지를 tool_calls 포함해 추가 → 각 tool 실행 → role:tool 메시지 추가 → 재호출
-    - 최종 assistant 텍스트 반환
+    1) 필요 시 선반영(tool_update_from_text) → system 힌트로 첨부
+    2) build_messages(...)로 컨텍스트 구성
+    3) tool_calls 나오면 run_tool(...) 실행 → role:tool 추가 → 재호출
     """
-    # 현재 상태/요약
+    # 1) 선 반영
+    pre = pre_update_if_needed(user_text, history)
+
+    # 1-1) 상태
     try:
-        state = _fetch_state(DB_DEFAULT)
+        state = pre.get("state") or _fetch_state(DB_DEFAULT)
     except Exception:
         state = {}
 
+    # 2) 메시지 구성
     messages = build_messages(user_text, state, recent_messages=history)
+    if pre.get("did_update") and pre.get("system_hint"):
+        # 선반영 결과를 LLM에 시스템 힌트로 추가
+        # 보통 system, developer, user 순이므로 2번째 인덱스 정도에 삽입 (문맥에 과도하게 앞서지 않게)
+        insert_at = 2 if len(messages) >= 2 else len(messages)
+        messages.insert(insert_at, {"role": "system", "content": pre["system_hint"]})
 
     # OpenAI function tools 정의
     tool_defs = [{
@@ -113,7 +198,6 @@ def call_llm_with_tools(user_text: str, history: List[Dict[str,str]]) -> str:
         }
     } for spec in TOOL_SPECS]
 
-    # 초기 메시지들(system/user)
     chat_messages: List[Dict[str, Any]] = [{"role": m["role"], "content": m["content"]} for m in messages]
 
     # 최대 3회 루프
@@ -123,31 +207,24 @@ def call_llm_with_tools(user_text: str, history: List[Dict[str,str]]) -> str:
             messages=chat_messages,
             tools=tool_defs,
             tool_choice="auto",
-            temperature=0.3,
+            temperature=0.2,
         )
         choice = resp.choices[0]
         msg = choice.message
 
-        # 툴 호출 있는가?
+        # 툴 호출?
         if msg.tool_calls and len(msg.tool_calls) > 0:
-            # 1) tool_calls 포함한 assistant 메시지 추가 (여기가 핵심 수정)
+            # tool_calls 포함 assistant 메시지 추가 (중요!)
             tool_calls_payload = []
             for tc in msg.tool_calls:
                 tool_calls_payload.append({
                     "id": tc.id,
                     "type": tc.type,
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments
-                    }
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments}
                 })
-            chat_messages.append({
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": tool_calls_payload
-            })
+            chat_messages.append({"role": "assistant", "content": msg.content or "", "tool_calls": tool_calls_payload})
 
-            # 2) 각 툴 실행 → role:tool 메시지 추가 (tool_call_id로 연결)
+            # 각 툴 실행 → role:tool 메시지 추가
             for tc in msg.tool_calls:
                 name = tc.function.name
                 try:
@@ -161,14 +238,14 @@ def call_llm_with_tools(user_text: str, history: List[Dict[str,str]]) -> str:
                     "name": name,
                     "content": json.dumps(result, ensure_ascii=False)
                 })
-
-            # 3) 다음 루프에서 재호출
             continue
 
-        # 최종 텍스트 응답
-        return (msg.content or "").strip()
+        # 최종 응답 (선반영 프리픽스 포함)
+        answer = (msg.content or "").strip()
+        if pre.get("did_update") and pre.get("user_prefix"):
+            answer = pre["user_prefix"] + "\n" + (answer or "")
+        return answer or _short_suggest()
 
-    # 보호적 종료
     return "도구 호출이 반복되어 대화를 마무리합니다. " + _short_suggest()
 
 # -------- 메인 루프 --------
@@ -196,7 +273,6 @@ def main():
         if not text:
             continue
 
-        # 명령 처리
         if text.startswith("/"):
             cmd = text.split()[0].lower()
             if cmd == "/help":
@@ -211,7 +287,6 @@ def main():
                 print("알 수 없는 명령입니다. /help 를 입력해 보세요.")
             continue
 
-        # 일반 대화
         try:
             if USE_LLM and client is not None:
                 answer = call_llm_with_tools(text, history)
@@ -224,7 +299,6 @@ def main():
                 answer = offline_route(text)
 
         print(answer)
-        # history에 최근 턴 저장
         history.append({"role":"user","content":text})
         history.append({"role":"assistant","content":answer})
 
