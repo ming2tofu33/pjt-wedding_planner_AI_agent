@@ -89,7 +89,7 @@ class UserProfile(TypedDict):
     
     # 웨딩 기본 정보
     wedding_date: Optional[str]          # ISO format date
-    total_budget: Optional[int]          # 총 예산 (만원 KRW)  # FIX: 단위 명확화(만원 → 원/₩ 통일)
+    total_budget: Optional[int]          # 총 예산 (만원 KRW)  
     guest_count: Optional[int]           # 하객 수
     preferred_locations: List[str]       # 선호 지역 ["강남구", "서초구"]
     
