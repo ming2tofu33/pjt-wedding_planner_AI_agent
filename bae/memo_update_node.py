@@ -71,7 +71,7 @@ def _collect_recent_turns(state: State) -> List[Tuple[str, str]]:
     """
     turns: List[Tuple[str, str]] = []
 
-    msgs = getattr(state, "messages", None) or []
+    msgs = state.get("messages", [])
     for m in msgs[-12:]:
         role = getattr(m, "type", None) or getattr(m, "role", None) or ""
         content = getattr(m, "content", None)
@@ -81,8 +81,8 @@ def _collect_recent_turns(state: State) -> List[Tuple[str, str]]:
             elif role in ("ai", "assistant"):
                 turns.append(("assistant", content))
 
-    if state.user_input and (not turns or turns[-1][0] != "user"):
-        turns.append(("user", state.user_input))
+    if state.get("user_input") and (not turns or turns[-1][0] != "user"):
+        turns.append(("user", state["user_input"]))
 
     return turns
 
@@ -102,57 +102,61 @@ def memo_update_node(state: State) -> State:
     - 실패해도 흐름을 끊지 않음
     """
     try:
-        if not state.user_memo:
-            state.response_content = (state.response_content or "") + " [memo_update: no memo]"
+        if not state.get("user_memo"):
+            current_response = state.get("response_content", "")
+            state["response_content"] = current_response + " [memo_update: no memo]"
             return state
 
         recent = _collect_recent_turns(state)
-        prev_summary = state.user_memo.get("conversation_summary")
+        prev_summary = state["user_memo"].get("conversation_summary")
 
         # 1) 요약 생성 (LLM 우선, 실패 시 Fallback)
         new_summary = llm_summarize(recent, prev_summary) or _fallback_summarize(recent, prev_summary)
-        state.conversation_summary = new_summary
-        state.user_memo["conversation_summary"] = new_summary  # type: ignore[index]
+        state["conversation_summary"] = new_summary
+        state["user_memo"]["conversation_summary"] = new_summary  # type: ignore[index]
 
         # 2) 가벼운 메타 기록(변경 시 저장 트리거 포함)
         meta_changed = False
-        if state.user_input and state.user_memo.get("last_input") != state.user_input:  # type: ignore[index]
-            state.user_memo["last_input"] = state.user_input  # type: ignore[index]
+        if state.get("user_input") and state["user_memo"].get("last_input") != state["user_input"]:  # type: ignore[index]
+            state["user_memo"]["last_input"] = state["user_input"]  # type: ignore[index]
             meta_changed = True
 
-        if any([state.vendor_type, state.region_keyword, state.limit]):
+        if any([state.get("vendor_type"), state.get("region_keyword"), state.get("limit")]):
             last_query_new = {
-                "vendor_type": state.vendor_type,
-                "region_keyword": state.region_keyword,
-                "limit": state.limit,
+                "vendor_type": state.get("vendor_type"),
+                "region_keyword": state.get("region_keyword"),
+                "limit": state.get("limit"),
             }
-            if state.user_memo.get("last_query") != last_query_new:  # type: ignore[index]
-                state.user_memo["last_query"] = last_query_new  # type: ignore[index]
+            if state["user_memo"].get("last_query") != last_query_new:  # type: ignore[index]
+                state["user_memo"]["last_query"] = last_query_new  # type: ignore[index]
                 meta_changed = True
 
         # 3) 저장 필요 여부 판단
-        need_save = state.memo_needs_update or (new_summary != prev_summary) or meta_changed
+        need_save = state.get("memo_needs_update") or (new_summary != prev_summary) or meta_changed
 
         if need_save:
-            path = state.memo_file_path
+            path = state.get("memo_file_path")
             if path:
-                ok = _save_json(path, state.user_memo)  # type: ignore[arg-type]
-                state.memo_needs_update = not ok
+                ok = _save_json(path, state["user_memo"])  # type: ignore[arg-type]
+                state["memo_needs_update"] = not ok
                 if not ok:
-                    state.status = "error"
-                    state.reason = (state.reason or "") + " [memo_update: save failed]"
+                    state["status"] = "error"
+                    current_reason = state.get("reason", "")
+                    state["reason"] = current_reason + " [memo_update: save failed]"
             else:
-                state.memo_needs_update = True
-                state.reason = (state.reason or "") + " [memo_update: missing memo_file_path]"
+                state["memo_needs_update"] = True
+                current_reason = state.get("reason", "")
+                state["reason"] = current_reason + " [memo_update: missing memo_file_path]"
 
         # 4) 로그 길이 관리
-        state.response_content = (state.response_content or "")
-        if len(state.response_content) > 500:
-            state.response_content = state.response_content[-500:]
-        state.response_content += " [memo_update: done]"
+        current_response = state.get("response_content", "")
+        if len(current_response) > 500:
+            current_response = current_response[-500:]
+        state["response_content"] = current_response + " [memo_update: done]"
         return state
 
     except Exception as e:
-        state.status = "error"
-        state.reason = (state.reason or "") + f" [memo_update: {e}]"
+        state["status"] = "error"
+        current_reason = state.get("reason", "")
+        state["reason"] = current_reason + f" [memo_update: {e}]"
         return state

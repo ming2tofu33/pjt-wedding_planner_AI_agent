@@ -88,9 +88,9 @@ class State(MessagesState):
     @property
     def total_budget_manwon(self) -> Optional[int]:
         """총 예산 접근 (메모리에서 직접 읽기)"""
-        if not self.user_memo:
+        if not self.get("user_memo"):
             return None
-        return self.user_memo["profile"]["total_budget_manwon"]
+        return self["user_memo"]["profile"]["total_budget_manwon"]
     
     @total_budget_manwon.setter
     def total_budget_manwon(self, value: Optional[int]):
@@ -100,9 +100,9 @@ class State(MessagesState):
     @property
     def wedding_date(self) -> Optional[str]:
         """결혼 날짜 접근 (메모리에서 직접 읽기)"""
-        if not self.user_memo:
+        if not self.get("user_memo"):
             return None
-        return self.user_memo["profile"]["wedding_date"]
+        return self["user_memo"]["profile"]["wedding_date"]
     
     @wedding_date.setter
     def wedding_date(self, value: Optional[str]):
@@ -112,22 +112,22 @@ class State(MessagesState):
 # ---------- (선택) 편의 유틸 ----------
 def memo_set_budget(state: State, manwon: Optional[int]) -> None:
     """State와 메모 모두에 예산(만원)을 반영."""
-    if state.user_memo is None:
-        if state.user_id is None:
+    if state.get("user_memo") is None:
+        if state.get("user_id") is None:
             return
-        state.user_memo = create_empty_user_memo(state.user_id)
-    state.user_memo["profile"]["total_budget_manwon"] = manwon
-    state.memo_needs_update = True
+        state["user_memo"] = create_empty_user_memo(state["user_id"])
+    state["user_memo"]["profile"]["total_budget_manwon"] = manwon
+    state["memo_needs_update"] = True
 
 def memo_set_wedding_date(state: State, date_iso: Optional[str]) -> None:
     """State와 메모 모두에 결혼일(ISO)을 반영."""
-    if state.user_memo is None:
-        if state.user_id is None:
+    if state.get("user_memo") is None:
+        if state.get("user_id") is None:
             return
-        state.user_memo = create_empty_user_memo(state.user_id)
-    state.user_memo["profile"]["wedding_date"] = date_iso
-    state.memo_needs_update = True
+        state["user_memo"] = create_empty_user_memo(state["user_id"])
+    state["user_memo"]["profile"]["wedding_date"] = date_iso
+    state["memo_needs_update"] = True
 
 def touch_processing_timestamp(state: State) -> None:
     """처리 시작 타임스탬프를 ISO 문자열로 기록."""
-    state.processing_timestamp = datetime.now().isoformat(timespec="seconds")
+    state["processing_timestamp"] = datetime.now().isoformat(timespec="seconds")
