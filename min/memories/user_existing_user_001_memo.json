@@ -1,0 +1,11 @@
+{
+  "profile": {
+    "user_id": "existing_user_001",
+    "wedding_date": "2025-10-15",
+    "total_budget_manwon": 3000,
+    "guest_count": null,
+    "preferred_locations": []
+  },
+  "conversation_summary": null,
+  "version": "1.0"
+}
