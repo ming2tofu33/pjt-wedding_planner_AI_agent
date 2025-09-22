@@ -10,7 +10,6 @@ def conditional_router(state: State) -> State:
         state.routing_decision = "general_response"
         state.reason = (state.reason or "") + " [router: status guard]"
         return state
-
     hint = (state.intent_hint or "").lower()
     # 1) general → 일반 응답
     if hint == "general":
