@@ -2,6 +2,7 @@
 # 주의: 모든 금액은 '만원' 단위(정수)로 가정
 import os
 from typing import List, Dict, Any, Optional
+from decimal import Decimal
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
@@ -22,6 +23,14 @@ def _engine() -> Engine:
         _ENGINE = create_engine(_pg_uri(), pool_pre_ping=True)
     return _ENGINE
 
+# ---------- 유틸: 식별자 이스케이프 ----------
+def _q(ident: str) -> str:
+    """
+    SQL 식별자 안전 감싸기. 특수문자/공백/괄호/+/슬래시 등을 포함해도 안전하게 쓰기 위해
+    항상 큰따옴표로 감싼다. 내부 큰따옴표는 ""로 이스케이프.
+    """
+    return '"' + ident.replace('"', '""') + '"'
+
 # ---------- 테이블 스펙 & 컬럼 매핑 ----------
 # 표준 출력 필드: name, region, price_manwon, extra(선택)
 SPECS = {
@@ -30,7 +39,7 @@ SPECS = {
         "name_col": "conm",
         "region_col": "subway",
         "price_col": "min_fee",  # 만원
-        "extra_cols": ["hall_rental_fee", "meal_expense", "num_guarantors", "season", "peak"],
+        "extra_cols": ["hall_rental_fee", "meal_expense", "num_guarantors", "season(T/F)", "peak(T/F)"],
     },
     "studio": {
         "table": "public.studio",
@@ -55,17 +64,17 @@ SPECS = {
     },
 }
 
-# ---------- 쿼리 ----------
+# ---------- 쿼리 템플릿 ----------
 SQL_TMPL = """
 SELECT
-  {name_col}   AS name,
-  {region_col} AS region,
-  {price_col}  AS price_manwon,
+  {name_q}   AS name,
+  {region_q} AS region,
+  CAST({price_q} AS INTEGER) AS price_manwon,
   {extra_select}
-FROM {table}
+FROM {table_q}
 WHERE
   (:kw IS NULL)
-  OR ({region_col} ILIKE :kw_like OR {name_col} ILIKE :kw_like)
+  OR ({region_q} ILIKE :kw_like OR {name_q} ILIKE :kw_like)
 ORDER BY
   price_manwon NULLS LAST, name
 LIMIT :lim
@@ -78,23 +87,37 @@ def db_query_tool(
 ) -> List[Dict[str, Any]]:
     """
     표준화된 레코드 리스트 반환:
-    [{ "name": str, "region": str|None, "price_manwon": int|None, "extra": {...} }, ...]
+    [{ "name": str, "region": str|None, "price_manwon": int|None, "extra": {...}, "vendor_type": str }, ...]
     """
     if vendor_type not in SPECS:
         return []
 
     spec = SPECS[vendor_type]
-    extra_cols = spec["extra_cols"]
-    # extra 컬럼을 JSON으로 묶기 위해 SELECT에 개별로 뽑아온 뒤, 파이썬에서 dict로 재구성
-    extra_select = ", ".join(extra_cols) if extra_cols else "NULL::text AS _no_extra"
 
-    sql = SQL_TMPL.format(
-        name_col=spec["name_col"],
-        region_col=spec["region_col"],
-        price_col=spec["price_col"],
-        extra_select=extra_select,
-        table=spec["table"]
-    )
+    # 식별자 준비 (항상 큰따옴표로 감싸 안전하게)
+    table_q  = spec["table"]  # 스키마.테이블은 그대로 사용하되, 컬럼은 모두 _q로 감쌈
+    name_q   = _q(spec["name_col"])
+    region_q = _q(spec["region_col"])
+    price_q  = _q(spec["price_col"])
+
+    # extra 컬럼들을 모두 이스케이프하고, 원래 키 이름을 그대로 alias로 노출
+    extra_cols = spec.get("extra_cols", [])
+    if extra_cols:
+        extra_select_parts = []
+        for c in extra_cols:
+            cq = _q(c)
+            alias = _q(c)  # 원래 키 이름으로 alias (그대로 r.get(c) 가능)
+            extra_select_parts.append(f"{cq} AS {alias}")
+        extra_select = ", ".join(extra_select_parts)
+    else:
+        # 최소 1개는 Select해야 하므로 NULL을 던짐
+        extra_select = "NULL AS _no_extra"
+
+    sql = SQL_TMPL.replace("{table_q}", table_q)\
+                  .replace("{name_q}", name_q)\
+                  .replace("{region_q}", region_q)\
+                  .replace("{price_q}", price_q)\
+                  .replace("{extra_select}", extra_select)
 
     params = {
         "kw": region_keyword if region_keyword else None,
@@ -111,22 +134,26 @@ def db_query_tool(
 
     out: List[Dict[str, Any]] = []
     for r in rows:
+        price_val = r.get("price_manwon")
+        if isinstance(price_val, Decimal):
+            price_val = int(price_val)
+        elif isinstance(price_val, float):
+            price_val = int(price_val)
+
         item = {
             "name": r.get("name"),
             "region": r.get("region"),
-            "price_manwon": r.get("price_manwon"),  # 만원 단위
+            "price_manwon": price_val,  # 만원 단위 정수
             "extra": {},
             "vendor_type": vendor_type,
         }
-        # extra dict 구성
         for c in extra_cols:
-            item["extra"][c] = r.get(c)
+            item["extra"][c] = r.get(c)  # 위에서 alias를 동일한 이름으로 뒀기 때문에 그대로 접근 가능
         out.append(item)
     return out
 
 # 개발용 테스트 함수
 if __name__ == "__main__":
-    # 빠른 테스트
     try:
         results = db_query_tool("wedding_hall", "강남", 3)
         print(f"✅ 성공: {len(results)}건")

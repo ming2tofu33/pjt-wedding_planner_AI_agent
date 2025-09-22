@@ -42,12 +42,12 @@ def _quick_replies_for_limits(limit: int) -> List[str]:
 
 def _format_known_context(state: State) -> str:
     parts = []
-    if isinstance(state.total_budget_manwon, int):
-        parts.append(f"예산 {state.total_budget_manwon}만원")
-    if state.wedding_date:
-        parts.append(f"예식일 {state.wedding_date}")
-    if state.region_keyword:
-        parts.append(f"지역 {state.region_keyword}")
+    if state.get("total_budget_manwon") and isinstance(state.get("total_budget_manwon"), int):
+        parts.append(f"예산 {state['total_budget_manwon']}만원")
+    if state.get("wedding_date"):
+        parts.append(f"예식일 {state['wedding_date']}")
+    if state.get("region_keyword"):
+        parts.append(f"지역 {state['region_keyword']}")
     return " · ".join(parts)
 
 def _detect_stress_signals(text: str) -> bool:
@@ -142,120 +142,134 @@ def general_response_node(state: State) -> State:
     + 스트레스 감지, 예산 현실성 체크, 개인정보 보호 포함
     """
     try:
-        state.suggestions.clear()
-        state.quick_replies.clear()
+        # suggestions와 quick_replies 초기화
+        state["suggestions"] = []
+        state["quick_replies"] = []
 
         # 0) 개인정보 보호
-        if _contains_personal_info(state.user_input or ""):
-            state.answer = (
+        if _contains_personal_info(state.get("user_input") or ""):
+            state["answer"] = (
                 "개인정보는 입력하지 말아주세요. 지역명이나 대략적인 예산 정도만 알려주시면 됩니다."
             )
-            state.quick_replies.extend(_quick_replies_for_category())
+            current_quick_replies = state.get("quick_replies", [])
+            state["quick_replies"] = current_quick_replies + _quick_replies_for_category()
             return state
 
         # 1) 스트레스 신호
-        if _detect_stress_signals(state.user_input or ""):
-            state.answer = (
+        if _detect_stress_signals(state.get("user_input") or ""):
+            state["answer"] = (
                 "결혼 준비가 생각보다 복잡하고 힘드시죠. "
                 "천천히 하나씩 정리해나가면 괜찮을 거예요. 어떤 부분이 가장 막막하신가요?"
             )
-            state.suggestions.extend([
+            current_suggestions = state.get("suggestions", [])
+            state["suggestions"] = current_suggestions + [
                 "전체적인 준비 순서가 궁금해요",
                 "예산 계획을 어떻게 세워야 할까요",
                 "우선순위를 정하고 싶어요",
-            ])
-            state.quick_replies.extend(_quick_replies_for_category())
+            ]
+            current_quick_replies = state.get("quick_replies", [])
+            state["quick_replies"] = current_quick_replies + _quick_replies_for_category()
             return state
 
         # 2) 인사말
-        user_input_lower = (state.user_input or "").lower().strip()
+        user_input_lower = (state.get("user_input") or "").lower().strip()
         if user_input_lower in ["", "안녕", "시작", "hello", "hi", "안녕하세요"]:
-            state.answer = (
+            state["answer"] = (
                 "안녕하세요! 웨딩 준비를 도와드릴 마리예요.\n어떤 준비를 시작해볼까요?"
             )
-            state.suggestions.extend([
+            current_suggestions = state.get("suggestions", [])
+            state["suggestions"] = current_suggestions + [
                 "강남 웨딩홀 5곳 보여줘",
                 "전지역 스튜디오 추천",
                 "드레스 예산 200만원 이하",
                 "메이크업 상위 5곳",
-            ])
-            state.quick_replies.extend(_quick_replies_for_category())
+            ]
+            current_quick_replies = state.get("quick_replies", [])
+            state["quick_replies"] = current_quick_replies + _quick_replies_for_category()
             return state
 
         # 3) 비웨딩 대화
         if _looks_non_wedding(user_input_lower):
-            smalltalk = _llm_smalltalk(state.user_input or "")
+            smalltalk = _llm_smalltalk(state.get("user_input") or "")
             ctx = _format_known_context(state)
             tail = ("\n\n현재 인지된 정보: " + ctx) if ctx else ""
-            state.answer = smalltalk + tail + f"\n\n{_get_positive_ending()}"
-            state.suggestions.extend([
+            state["answer"] = smalltalk + tail + f"\n\n{_get_positive_ending()}"
+            current_suggestions = state.get("suggestions", [])
+            state["suggestions"] = current_suggestions + [
                 "강남 웨딩홀 5곳 보여줘",
                 "스튜디오 촬영 견적 알려줘",
                 "예산 300만원 기준으로 추천",
-            ])
-            state.quick_replies.extend(_quick_replies_for_category())
+            ]
+            current_quick_replies = state.get("quick_replies", [])
+            state["quick_replies"] = current_quick_replies + _quick_replies_for_category()
             return state
 
         # 4) 웨딩인데 카테고리 없음
-        if not state.vendor_type:
+        if not state.get("vendor_type"):
             ctx = _format_known_context(state)
             intro = "원하시는 준비 항목을 선택해 주세요."
             tip = '예: "강남 웨딩홀 5곳", "드레스 예산 200만원 이하"'  # ← 따옴표 수정
             msg = (("현재 인지된 정보: " + ctx + "\n\n") if ctx else "") + intro + f"\n{tip}"
-            state.answer = msg.strip() + f"\n\n{_get_positive_ending()}"
-            state.suggestions.extend([
+            state["answer"] = msg.strip() + f"\n\n{_get_positive_ending()}"
+            current_suggestions = state.get("suggestions", [])
+            state["suggestions"] = current_suggestions + [
                 "강남 웨딩홀 5곳 보여줘",
                 "전지역 스튜디오 5곳",
                 "드레스 200만원 이하",
                 "메이크업 상위 5곳",
-            ])
-            state.quick_replies.extend(_quick_replies_for_category())
+            ]
+            current_quick_replies = state.get("quick_replies", [])
+            state["quick_replies"] = current_quick_replies + _quick_replies_for_category()
             return state
 
         # 5) 카테고리는 있고 지역 없음
-        ty_label = VENDOR_LABEL.get(state.vendor_type, state.vendor_type)
-        if not state.region_keyword:
+        ty_label = VENDOR_LABEL.get(state.get("vendor_type"), state.get("vendor_type"))
+        if not state.get("region_keyword"):
             ctx = _format_known_context(state)
             ask = f"{ty_label}을(를) 찾아볼게요! 선호 지역이 있으신가요?"
             tip = "예: 강남, 청담, 홍대, 전지역"
             budget_warning = ""
-            if isinstance(state.total_budget_manwon, int):
-                bw = _budget_reality_check(state.total_budget_manwon, state.vendor_type)
+            if isinstance(state.get("total_budget_manwon"), int):
+                bw = _budget_reality_check(state["total_budget_manwon"], state.get("vendor_type"))
                 if bw:
                     budget_warning = f"\n\n💡 {bw}"
             msg = (("현재 인지된 정보: " + ctx + "\n\n") if ctx else "") + ask + f"\n{tip}" + budget_warning
-            state.answer = msg.strip() + f"\n\n{_get_positive_ending()}"
-            state.suggestions.extend([
-                f"강남 {ty_label} 상위 {_clamp_limit(state.limit)}곳",
+            state["answer"] = msg.strip() + f"\n\n{_get_positive_ending()}"
+            current_suggestions = state.get("suggestions", [])
+            state["suggestions"] = current_suggestions + [
+                f"강남 {ty_label} 상위 {_clamp_limit(state.get('limit'))}곳",
                 f"전지역 {ty_label} 추천",
                 "예산 범위를 지정해서 보여줘",
-            ])
-            state.quick_replies.extend(_quick_replies_for_region())
+            ]
+            current_quick_replies = state.get("quick_replies", [])
+            state["quick_replies"] = current_quick_replies + _quick_replies_for_region()
             return state
 
         # 6) 카테고리/지역 모두 있음 → 실행 전 확인
         ctx = _format_known_context(state)
-        limit = _clamp_limit(state.limit)
-        confirm = f"그럼 '{state.region_keyword}' 지역 {ty_label} {limit}곳을 찾아볼게요."
+        limit = _clamp_limit(state.get("limit"))
+        confirm = f"그럼 '{state.get('region_keyword')}' 지역 {ty_label} {limit}곳을 찾아볼게요."
         budget_warning = ""
-        if isinstance(state.total_budget_manwon, int):
-            bw = _budget_reality_check(state.total_budget_manwon, state.vendor_type)
+        if isinstance(state.get("total_budget_manwon"), int):
+            bw = _budget_reality_check(state["total_budget_manwon"], state.get("vendor_type"))
             if bw:
                 budget_warning = f"\n\n💡 {bw}"
         msg = (("현재 인지된 정보: " + ctx + "\n\n") if ctx else "") + confirm + budget_warning
-        state.answer = msg.strip() + f"\n\n{_get_positive_ending()}"
-        state.suggestions.extend([
+        state["answer"] = msg.strip() + f"\n\n{_get_positive_ending()}"
+        current_suggestions = state.get("suggestions", [])
+        state["suggestions"] = current_suggestions + [
             "가격 상한을 정해 필터링해줘",
             "비슷한 가격대 더 보여줘",
             "다른 지역으로도 보여줘",
-        ])
-        state.quick_replies.extend(_quick_replies_for_limits(limit))
+        ]
+        current_quick_replies = state.get("quick_replies", [])
+        state["quick_replies"] = current_quick_replies + _quick_replies_for_limits(limit)
         return state
 
     except Exception as e:
-        state.status = "error"
-        state.answer = "일반 응답을 정리하는 중 문제가 생겼어요. 간단히 다시 요청해 주세요."
-        state.reason = (state.reason or "") + f" [general_response: {e}]"
+        state["status"] = "error"
+        state["answer"] = "일반 응답을 정리하는 중 문제가 생겼어요. 간단히 다시 요청해 주세요."
+        state["reason"] = (state.get("reason") or "") + f" [general_response: {e}]"
         return state
 
 # 개발용 테스트
@@ -270,7 +284,7 @@ if __name__ == "__main__":
     ]
     for user_input, name in cases:
         st = State()
-        st.user_input = user_input
+        st["user_input"] = user_input
         out = general_response_node(st)
-        print(f"✅ {name}: {out.answer[:80]}...")
+        print(f"✅ {name}: {out.get('answer', '')[:80]}...")
         print("---")

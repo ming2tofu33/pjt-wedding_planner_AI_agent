@@ -1,0 +1,10 @@
+{
+    "graphs": {
+        "app": "./graph_builder.py:app"
+    },
+    "env": "./.env",
+    "python_version": "3.13",
+    "dependencies": [
+        "."
+    ]
+}
