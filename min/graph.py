@@ -32,6 +32,16 @@
 #     if d == "recommendation":
 #         return "recommendation_node"
 #     return "general_response_node"
+# graph.py 파일의 _route_from_router 함수
+def _route_from_router(state: State) -> str:
+    if state.get("status") == "error":
+        return "error_handler_node"
+    d = state.get("routing_decision") or "general_response"
+    if d == "tool_execution":
+        return "tool_execution_node"
+    if d == "recommendation":
+        return "recommendation_node"
+    return "general_response_node"
 
 # def _after_tool_exec(state: State) -> str:
 #     return "error_handler_node" if state.get("status") == "error" else "memo_update_node"
@@ -54,6 +64,8 @@
 #     # 성공적으로 추천이 이루어졌다면 'tool_execution_node'로 이동합니다.
 #     # 오류가 발생했다면 'error_handler_node'로 이동합니다.
 #     return "error_handler_node" if state.get("status") == "error" else "tool_execution_node"
+def _after_recommendation(state: State) -> str:
+    return "error_handler_node" if state.get("status") == "error" else "tool_execution_node"
 
 
 # # 그래프 빌드
@@ -95,6 +107,10 @@
 #     "tool_execution_node": "tool_execution_node",
 #     "error_handler_node": "error_handler_node",
 # })
+builder.add_conditional_edges("recommendation_node", _after_recommendation, {
+    "tool_execution_node": "tool_execution_node",
+    "error_handler_node": "error_handler_node",
+})
 
 # builder.add_conditional_edges("tool_execution_node", _after_tool_exec, {
 #     "memo_update_node": "memo_update_node",
@@ -115,6 +131,8 @@
 #     "error_handler_node": "error_handler_node",
 #     "__end__": END,
 # })
+
+builder.add_edge('error_handler_node', END)
 
 # builder.add_conditional_edges("error_handler_node", _after_error, {
 #     "__end__": END,

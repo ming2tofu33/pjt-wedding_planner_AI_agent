@@ -38,74 +38,165 @@ class ToolResult(TypedDict):
 
 # ============= 메인 State 클래스 =============
 
-class State(TypedDict, total=False):
-    """
-    LangGraph의 메인 상태를 정의하는 TypedDict
-    total=False로 모든 필드가 선택적(Optional)
-    """
+# class State(TypedDict, total=False):
+#     """
+#     LangGraph의 메인 상태를 정의하는 TypedDict
+#     total=False로 모든 필드가 선택적(Optional)
+#     """
     
-    # ===== 기본 식별 정보 =====
-    user_id: str                             # 사용자 고유 ID
-    user_input: str                          # 원본 사용자 입력
-    session_id: Optional[str]                # 세션 ID (선택적)
+#     # ===== 기본 식별 정보 =====
+#     user_id: str                             # 사용자 고유 ID
+#     user_input: str                          # 원본 사용자 입력
+#     session_id: Optional[str]                # 세션 ID (선택적)
     
-    # ===== 메모리 관리 =====
-    user_memo: Optional[UserMemo]            # 사용자 장기 메모리
-    memo_file_path: Optional[str]            # 메모리 파일 경로
-    memo_needs_update: bool                  # 메모리 업데이트 필요 여부
-    memo_load_success: Optional[bool]        # 메모리 로드 성공 여부
-    memo_updates_made: Optional[List[Dict]]  # 메모리 업데이트 내역
+#     # ===== 메모리 관리 =====
+#     user_memo: Optional[UserMemo]            # 사용자 장기 메모리
+#     memo_file_path: Optional[str]            # 메모리 파일 경로
+#     memo_needs_update: bool                  # 메모리 업데이트 필요 여부
+#     memo_load_success: Optional[bool]        # 메모리 로드 성공 여부
+#     memo_updates_made: Optional[List[Dict]]  # 메모리 업데이트 내역
     
-    # ===== 파싱 결과 =====
-    intent_hint: Optional[Literal["recommend", "tool", "general"]]  # 의도 힌트
-    vendor_type: Optional[str]               # 업체 타입 (wedding_hall, studio, etc.)
-    region_keyword: Optional[str]            # 지역 키워드
-    update_type: Optional[str]               # 업데이트 타입 (wedding_date, budget, etc.)
-    parsing_confidence: Optional[float]      # 파싱 확신도
-    raw_llm_response: Optional[Dict[str, Any]]  # 원본 LLM 응답
+#     # ===== 파싱 결과 =====
+#     intent_hint: Optional[Literal["recommend", "tool", "general"]]  # 의도 힌트
+#     vendor_type: Optional[str]               # 업체 타입 (wedding_hall, studio, etc.)
+#     region_keyword: Optional[str]            # 지역 키워드
+#     update_type: Optional[str]               # 업데이트 타입 (wedding_date, budget, etc.)
+#     parsing_confidence: Optional[float]      # 파싱 확신도
+#     raw_llm_response: Optional[Dict[str, Any]]  # 원본 LLM 응답
     
-    # ===== 사용자 프로필 필드 (빠른 접근용) =====
-    total_budget_manwon: Optional[int]       # 총 예산(만원)
-    wedding_date: Optional[str]              # 결혼일
-    guest_count: Optional[int]               # 하객 수
-    preferred_locations: Annotated[List[str], add]  # 선호 지역들
+#     # ===== 사용자 프로필 필드 (빠른 접근용) =====
+#     total_budget_manwon: Optional[int]       # 총 예산(만원)
+#     wedding_date: Optional[str]              # 결혼일
+#     guest_count: Optional[int]               # 하객 수
+#     preferred_locations: Annotated[List[str], add]  # 선호 지역들
     
-    # ===== 라우팅 및 실행 관리 =====
-    routing_decision: Optional[Literal["tool_execution", "general_response", "recommendation", "error_handler"]]
-    tools_to_execute: Annotated[List[str], add]  # 실행할 툴 목록
-    tool_results: Annotated[List[ToolResult], add]  # 툴 실행 결과들
-    tool_execution_log: Optional[Dict[str, Dict]]  # 툴 실행 로그
+#     # ===== 라우팅 및 실행 관리 =====
+#     routing_decision: Optional[Literal["tool_execution", "general_response", "recommendation", "error_handler"]]
+#     tools_to_execute: Annotated[List[str], add]  # 실행할 툴 목록
+#     tool_results: Annotated[List[ToolResult], add]  # 툴 실행 결과들
+#     tool_execution_log: Optional[Dict[str, Dict]]  # 툴 실행 로그
     
-    # ===== 응답 생성 =====
-    response_content: Optional[str]          # 핵심 응답 내용
-    final_response: Optional[str]            # 최종 포맷팅된 응답
-    answer: Optional[str]                    # 답변 (response_content와 유사)
-    conversation_summary: Optional[str]      # 대화 요약
-    suggestions: Annotated[List[str], add]   # 다음 질문/액션 제안들
-    quick_replies: Annotated[List[str], add] # 빠른 답변 버튼들
+#     # ===== 응답 생성 =====
+#     response_content: Optional[str]          # 핵심 응답 내용
+#     final_response: Optional[str]            # 최종 포맷팅된 응답
+#     answer: Optional[str]                    # 답변 (response_content와 유사)
+#     conversation_summary: Optional[str]      # 대화 요약
+#     suggestions: Annotated[List[str], add]   # 다음 질문/액션 제안들
+#     quick_replies: Annotated[List[str], add] # 빠른 답변 버튼들
     
-    # ===== 상태 및 에러 관리 =====
-    status: Literal["ok", "empty", "error", "handled_error"]  # 처리 상태
-    reason: Optional[str]                    # 상태 이유 (에러 메시지 등)
-    error_info: Optional[Dict[str, Any]]     # 상세 에러 정보
-    recovery_attempted: Optional[bool]       # 복구 시도 여부
+#     # ===== 상태 및 에러 관리 =====
+#     status: Literal["ok", "empty", "error", "handled_error"]  # 처리 상태
+#     reason: Optional[str]                    # 상태 이유 (에러 메시지 등)
+#     error_info: Optional[Dict[str, Any]]     # 상세 에러 정보
+#     recovery_attempted: Optional[bool]       # 복구 시도 여부
     
-    # ===== 시스템 추적 =====
-    current_node: Optional[str]              # 현재 처리 중인 노드명
-    processing_timestamp: Optional[str]      # 처리 시작 시간 (ISO 형식)
-    processing_duration: Optional[float]     # 처리 소요 시간 (초)
+#     # ===== 시스템 추적 =====
+#     current_node: Optional[str]              # 현재 처리 중인 노드명
+#     processing_timestamp: Optional[str]      # 처리 시작 시간 (ISO 형식)
+#     processing_duration: Optional[float]     # 처리 소요 시간 (초)
     
-    # ===== 데이터베이스 관련 =====
-    sql: Optional[str]                       # 생성된 SQL 쿼리
-    rows: Annotated[List[Dict[str, Any]], add]  # DB 조회 결과
-    limit: Optional[int]                     # 결과 제한 수
+#     # ===== 데이터베이스 관련 =====
+#     sql: Optional[str]                       # 생성된 SQL 쿼리
+#     rows: Annotated[List[Dict[str, Any]], add]  # DB 조회 결과
+#     limit: Optional[int]                     # 결과 제한 수
     
-    # ===== LangGraph 메시지 시스템 (수동 관리) =====
-    messages: Annotated[List[Dict[str, Any]], add]  # 대화 메시지들
+#     # ===== LangGraph 메시지 시스템 (수동 관리) =====
+#     messages: Annotated[List[Dict[str, Any]], add]  # 대화 메시지들
     
-    # ===== 성능 및 분석 =====
-    cache_hits: Optional[Dict[str, int]]     # 캐시 히트 카운트
-    performance_metrics: Optional[Dict[str, float]]  # 성능 메트릭스
+#     # ===== 성능 및 분석 =====
+#     cache_hits: Optional[Dict[str, int]]     # 캐시 히트 카운트
+#     performance_metrics: Optional[Dict[str, float]]  # 성능 메트릭스
+
+from langgraph.graph import MessagesState
+from typing import Optional, List, Dict, Any, Literal
+
+class State(MessagesState):
+    # 0) 식별/메모
+    user_id: Optional[str] = None
+    user_memo: Optional[UserMemo] = None
+    memo_file_path: Optional[str] = None         # 예: ./memories/user_{id}_memo.json
+    memo_needs_update: bool = False
+    
+    # 1) 입력/파싱 결과
+    user_input: Optional[str] = None
+    vendor_type: Optional[str] = None            # 'wedding_hall'|'studio'|'wedding_dress'|'makeup'
+    region_keyword: Optional[str] = None         # 예: '강남', '청담', '압구정'
+    limit: int = 5
+    
+    # 2) 라우팅 힌트/의사결정
+    intent_hint: Optional[Literal["recommend", "tool", "general"]] = None
+    routing_decision: Optional[Literal["tool_execution", "general_response", "recommendation"]] = None
+    
+    # 3) 실행 계획(선택)
+    sql: Optional[str] = None
+    
+    # 4) 툴/DB 결과
+    tools_to_execute: Annotated[List[str], add] = []
+    rows: Annotated[List[Dict[str, Any]], add] = []   # DB 결과 레코드
+    
+    # 5) 응답 생성
+    response_content: Optional[str] = None
+    answer: Optional[str] = None
+    conversation_summary: Optional[str] = None
+    suggestions: Annotated[List[str], add] = []
+    quick_replies: Annotated[List[str], add] = []
+    
+    # 6) 상태/에러/추적
+    status: Literal["ok", "empty", "error"] = "ok"
+    reason: Optional[str] = None
+    error_info: Optional[Dict[str, Any]] = None
+    processing_timestamp: Optional[str] = None  # ISO 문자열로 저장
+    
+    # ---------- 메모리 접근 프로퍼티 (데이터 일관성 보장) ----------
+    @property
+    def total_budget_manwon(self) -> Optional[int]:
+        """총 예산 접근 (메모리에서 직접 읽기)"""
+        if not self.get("user_memo"):
+            return None
+        return self["user_memo"]["profile"]["total_budget_manwon"]
+    
+    @total_budget_manwon.setter
+    def total_budget_manwon(self, value: Optional[int]):
+        """총 예산 설정 (메모리 동기화)"""
+        memo_set_budget(self, value)
+    
+    @property
+    def wedding_date(self) -> Optional[str]:
+        """결혼 날짜 접근 (메모리에서 직접 읽기)"""
+        if not self.get("user_memo"):
+            return None
+        return self["user_memo"]["profile"]["wedding_date"]
+    
+    @wedding_date.setter
+    def wedding_date(self, value: Optional[str]):
+        """결혼 날짜 설정 (메모리 동기화)"""
+        memo_set_wedding_date(self, value)
+
+# ---------- (선택) 편의 유틸 ----------
+def memo_set_budget(state: State, manwon: Optional[int]) -> None:
+    """State와 메모 모두에 예산(만원)을 반영."""
+    if state.get("user_memo") is None:
+        if state.get("user_id") is None:
+            return
+        state["user_memo"] = create_empty_user_memo(state["user_id"])
+    state["user_memo"]["profile"]["total_budget_manwon"] = manwon
+    state["memo_needs_update"] = True
+
+def memo_set_wedding_date(state: State, date_iso: Optional[str]) -> None:
+    """State와 메모 모두에 결혼일(ISO)을 반영."""
+    if state.get("user_memo") is None:
+        if state.get("user_id") is None:
+            return
+        state["user_memo"] = create_empty_user_memo(state["user_id"])
+    state["user_memo"]["profile"]["wedding_date"] = date_iso
+    state["memo_needs_update"] = True
+
+def touch_processing_timestamp(state: State) -> None:
+    """처리 시작 타임스탬프를 ISO 문자열로 기록."""
+    state["processing_timestamp"] = datetime.now().isoformat(timespec="seconds")
+
+
+
 
 # ============= 유틸리티 함수들 =============
 
@@ -230,3 +321,4 @@ def set_default_values(state: State) -> None:
         state['messages'] = []
     if 'preferred_locations' not in state:
         state['preferred_locations'] = []
+        
