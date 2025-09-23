@@ -509,32 +509,25 @@ def tool_execution_node(state: State) -> State:
     - tool_results: Standardized results from all executed tools
     - tool_execution_log: Detailed execution metrics and logs
     """
-    
-    # Import tools from tools.py
-    from tools import web_search_tool, calculator_tool, db_query_tool, user_db_update_tool
-    
     touch_processing_timestamp(state)
     tools_to_execute = state.get('tools_to_execute', [])
-    user_memo = state.get('user_memo', {})
-    user_input = state.get('user_input', '')
-    user_id = state.get('user_id')
     
-    # Tool execution results and logging
-    tool_results = {}
+    # tool_results를 이제 리스트로 관리하여 이전 문제를 원천적으로 방지합니다.
+    tool_results = []
     execution_log = []
     
     try:
         if not tools_to_execute:
-            state['tool_results'] = {}
+            state['tool_results'] = []
             state['reason'] = "No tools to execute"
             state['status'] = "ok"
             return state
         
         print(f"🔧 실행할 툴: {tools_to_execute}")
         
-        # Execute each tool sequentially
         for tool_name in tools_to_execute:
             execution_start = datetime.now()
+            result = {}
             
             try:
                 print(f"⚡ {tool_name} 실행 중...")
@@ -557,10 +550,12 @@ def tool_execution_node(state: State) -> State:
                 execution_end = datetime.now()
                 execution_time = (execution_end - execution_start).total_seconds()
                 
-                # Store result
-                tool_results[tool_name] = result
+                # 결과를 리스트에 추가 (tool_name 포함)
+                tool_results.append({
+                    "tool_name": tool_name,
+                    "output": result
+                })
                 
-                # Log execution
                 log_entry = {
                     "tool_name": tool_name,
                     "execution_time": execution_time,
@@ -580,37 +575,23 @@ def tool_execution_node(state: State) -> State:
                     "error": f"Tool execution failed: {str(e)}",
                     "data": None
                 }
-                tool_results[tool_name] = error_result
-                
-                execution_end = datetime.now()
-                execution_time = (execution_end - execution_start).total_seconds()
-                
-                log_entry = {
+                tool_results.append({
                     "tool_name": tool_name,
-                    "execution_time": execution_time,
-                    "success": False,
-                    "error": str(e),
-                    "timestamp": execution_end.isoformat()
-                }
-                execution_log.append(log_entry)
-                
+                    "output": error_result
+                })
                 print(f"❌ {tool_name} 에러: {str(e)}")
+
+        successful_tools_count = sum(1 for r in tool_results if r['output'].get("success"))
         
-        # Summarize execution results
-        successful_tools = [name for name, result in tool_results.items() if result.get("success")]
-        failed_tools = [name for name, result in tool_results.items() if not result.get("success")]
-        
-        state['tool_results'] = tool_results
+        state['tool_results'] = tool_results # 최종적으로 리스트를 state에 저장
         state['execution_log'] = execution_log
-        state['successful_tools'] = successful_tools
-        state['failed_tools'] = failed_tools
         state['status'] = "ok"
-        state['reason'] = f"Executed {len(successful_tools)}/{len(tools_to_execute)} tools successfully"
+        state['reason'] = f"Executed {successful_tools_count}/{len(tools_to_execute)} tools successfully"
         
-        print(f"📊 실행 완료: 성공 {len(successful_tools)}, 실패 {len(failed_tools)}")
+        print(f"📊 실행 완료: 성공 {successful_tools_count}, 실패 {len(tools_to_execute) - successful_tools_count}")
         
     except Exception as e:
-        state['tool_results'] = {}
+        state['tool_results'] = []
         state['status'] = "error"
         state['reason'] = f"Tool execution node failed: {str(e)}"
         print(f"💥 tool_execution_node 전체 실패: {str(e)}")
@@ -620,353 +601,129 @@ def tool_execution_node(state: State) -> State:
 
 def execute_db_query_tool(state: dict) -> dict:
     """
-    Execute database query tool for wedding vendor information.
-    
-    Searches the database for venues, studios, dresses, makeup services
-    based on user criteria like location, budget, style preferences.
+    데이터베이스 쿼리 툴을 실행하고 결과를 딕셔너리로 반환합니다.
     """
     from tools import db_query_tool
     
     try:
-        # Extract query parameters
         vendor_type = state.get('vendor_type')
         region_keyword = state.get('region_keyword')
-        user_memo = state.get('user_memo', {})
-        profile = user_memo.get('profile', {})
-        budget = profile.get('total_budget_manwon')
+        budget = (state.get('user_memo', {}).get('profile', {})).get('total_budget_manwon')
         
-        # Build SQL query based on state
-        if vendor_type == "wedding_hall":
-            table_name = "wedding_halls"
-        elif vendor_type == "studio":
-            table_name = "studios"
-        elif vendor_type == "wedding_dress":
-            table_name = "wedding_dresses"
-        elif vendor_type == "makeup":
-            table_name = "makeup"
-        else:
-            table_name = "wedding_halls"  # Default
+        table_map = {
+            "wedding_hall": "wedding_hall",
+            "studio": "studio",
+            "wedding_dress": "wedding_dress",
+            "makeup": "makeup"
+        }
+        table_name = table_map.get(vendor_type, "wedding_hall") # 기본값 설정
         
-        # Construct base query
-        query = f"SELECT * FROM {table_name}"
+        query = f"SELECT name, location, price_manwon FROM {table_name}"
         conditions = []
         
-        # Add location filter
         if region_keyword:
             conditions.append(f"location LIKE '%{region_keyword}%'")
-        
-        # Add budget filter
         if budget:
             conditions.append(f"price_manwon <= {budget}")
         
-        # Add conditions to query
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         
-        query += " LIMIT 10"
+        query += " ORDER BY price_manwon DESC LIMIT 5"
         
         print(f"🗄️ DB 쿼리: {query}")
         
-        # Execute query using tools.py function
-        result_str = db_query_tool(query)
-        
-        # Parse results (simplified for demo)
-        if "Error" in result_str or "failed" in result_str:
-            return {
-                "success": False,
-                "error": result_str,
-                "data": None
-            }
-        
-        # Mock data parsing (in real implementation, parse the SQL result)
-        mock_count = 1 if vendor_type else 0
-        
-        return {
-            "success": True,
-            "data": {
-                "query_executed": query,
-                "total_count": mock_count,
-                "results": result_str[:100] + "..." if len(result_str) > 100 else result_str
-            },
-            "message": f"Found {mock_count} matching vendors"
-        }
+        # db_query_tool은 이제 딕셔너리를 반환하므로 그대로 반환합니다.
+        return db_query_tool(query)
         
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Database query execution failed: {str(e)}",
-            "data": None
-        }
+        return {"success": False, "error": f"DB query execution failed: {str(e)}", "data": None}
 
 
 def execute_web_search_tool(state: dict) -> dict:
     """
-    Execute web search tool for current trends and reviews.
+    웹 검색 툴을 실행하고 결과를 딕셔너리로 반환합니다.
     """
     from tools import web_search_tool
     
     try:
-        # Generate search query based on state
         vendor_type = state.get('vendor_type', '')
         region_keyword = state.get('region_keyword', '')
         user_input = state.get('user_input', '')
         
-        # Build search query
         search_terms = []
-        
         if vendor_type:
-            if vendor_type == "wedding_hall":
-                search_terms.append("웨딩홀")
-            elif vendor_type == "studio":
-                search_terms.append("웨딩 스튜디오")
-            elif vendor_type == "wedding_dress":
-                search_terms.append("웨딩드레스")
-            elif vendor_type == "makeup":
-                search_terms.append("웨딩 메이크업")
-        
-        if region_keyword:
-            search_terms.append(region_keyword)
-        
-        # Add trend keywords from user input
+            search_terms.append(f"{region_keyword} {vendor_type} 추천")
         if any(keyword in user_input for keyword in ['트렌드', '최신', '요즘', '인기']):
-            search_terms.append("2025 트렌드")
-        
+            search_terms.append("최신 웨딩 트렌드")
         if any(keyword in user_input for keyword in ['후기', '리뷰']):
-            search_terms.append("후기 리뷰")
-        
-        search_query = " ".join(search_terms) or "웨딩 정보"
+            search_terms.append("후기")
+
+        search_query = " ".join(search_terms) or "결혼 준비 정보"
         
         print(f"🌐 웹 검색: {search_query}")
         
-        # Execute search using tools.py function
-        search_results = web_search_tool(search_query)
-        
-        return {
-            "success": True,
-            "data": {
-                "search_query": search_query,
-                "total_results": 3,  # Tavily returns max 3 results
-                "results": str(search_results)[:200] + "..." if len(str(search_results)) > 200 else str(search_results)
-            },
-            "message": "Found 3 recent web results"
-        }
+        # web_search_tool은 딕셔너리를 반환하므로 그대로 반환합니다.
+        return web_search_tool(search_query)
         
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Web search execution failed: {str(e)}",
-            "data": None
-        }
+        return {"success": False, "error": f"Web search execution failed: {str(e)}", "data": None}
 
 
 def execute_calculator_tool(state: dict) -> dict:
     """
-    Execute calculator tool for budget and timeline calculations.
+    계산기 툴을 실행하고 결과를 딕셔너리로 반환합니다.
     """
     from tools import calculator_tool
     
     try:
-        user_memo = state.get('user_memo', {})
-        profile = user_memo.get('profile', {})
         user_input = state.get('user_input', '')
         
-        total_budget = profile.get('total_budget_manwon', 0)
-        guest_count = profile.get('guest_count', 100)
-        
-        # Determine calculation type based on input
-        if any(keyword in user_input for keyword in ['1인당', '인당', '게스트']):
-            # Per-person calculation
-            if total_budget:
-                expression = f"{total_budget * 10000} / {guest_count}"
-                calc_result = calculator_tool(expression)
-                
-                return {
-                    "success": True,
-                    "data": {
-                        "calculation_type": "per_person_budget",
-                        "expression": expression,
-                        "result": calc_result,
-                        "total_budget_manwon": total_budget,
-                        "guest_count": guest_count
-                    },
-                    "message": f"Per-person budget: {calc_result}원"
-                }
-        
-        # Default: Budget breakdown calculation
-        if total_budget:
-            # Wedding budget breakdown (Korean standard)
-            venue_pct = 40  # 40% for venue
-            photography_pct = 15  # 15% for photography
-            dress_pct = 10  # 10% for dress
-            makeup_pct = 5   # 5% for makeup
-            etc_pct = 30     # 30% for others
-            
-            venue_budget = calculator_tool(f"{total_budget} * {venue_pct} / 100")
-            photo_budget = calculator_tool(f"{total_budget} * {photography_pct} / 100")
-            dress_budget = calculator_tool(f"{total_budget} * {dress_pct} / 100")
-            makeup_budget = calculator_tool(f"{total_budget} * {makeup_pct} / 100")
-            etc_budget = calculator_tool(f"{total_budget} * {etc_pct} / 100")
-            
-            # Calculate potential savings (assume 15% negotiation potential)
-            savings = calculator_tool(f"{total_budget} * 15 / 100")
-            
-            return {
-                "success": True,
-                "data": {
-                    "calculation_type": "budget_breakdown",
-                    "total_budget_manwon": total_budget,
-                    "venue_budget_manwon": venue_budget,
-                    "photography_budget_manwon": photo_budget,
-                    "dress_budget_manwon": dress_budget,
-                    "makeup_budget_manwon": makeup_budget,
-                    "etc_budget_manwon": etc_budget,
-                    "total_potential_savings": savings
-                },
-                "message": f"Budget calculation completed for {total_budget}만원 total budget"
-            }
-        
-        # Fallback: Simple calculation from user input
-        # Extract numbers and operators from user input for basic math
-        import re
-        math_pattern = r'[\d+\-*/().\s]+'
-        math_expressions = re.findall(math_pattern, user_input)
-        
-        if math_expressions:
-            expression = ''.join(math_expressions).strip()
-            if expression:
-                calc_result = calculator_tool(expression)
-                return {
-                    "success": True,
-                    "data": {
-                        "calculation_type": "user_expression",
-                        "expression": expression,
-                        "result": calc_result
-                    },
-                    "message": f"Calculation result: {calc_result}"
-                }
-        
-        return {
-            "success": False,
-            "error": "No valid calculation parameters found",
-            "data": None
-        }
-        
+        # 사용자 입력에서 간단한 수학 표현식 찾기 (예: "총 예산 5000만원에서 300 빼면 얼마?")
+        match = re.search(r'([\d\s\+\-\*\/\(\)]+)', user_input)
+        if match:
+            expression = match.group(1).strip()
+            # 숫자만 있는 경우는 제외
+            if any(op in expression for op in "+-*/"):
+                print(f"🧮 계산기 실행: {expression}")
+                return calculator_tool(expression)
+
+        return {"success": False, "error": "No valid calculation expression found in user input", "data": None}
+
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Calculator execution failed: {str(e)}",
-            "data": None
-        }
+        return {"success": False, "error": f"Calculator execution failed: {str(e)}", "data": None}
 
 
 def execute_user_db_update_tool(state: dict) -> dict:
     """
-    Execute user database update tool for profile changes.
+    사용자 정보 업데이트 툴을 실행하고 결과를 딕셔너리로 반환합니다.
     """
     from tools import user_db_update_tool
     
     try:
         user_id = state.get('user_id')
         update_type = state.get('update_type')
-        user_input = state.get('user_input', '')
         
-        if not user_id:
-            return {
-                "success": False,
-                "error": "No user_id provided for update",
-                "data": None
-            }
-        
-        changes_made = 0
-        update_details = []
-        
-        # Process different update types
-        if update_type == "wedding_date":
-            # Extract date from user input (simplified)
-            import re
-            date_patterns = [
-                r'(\d{4})[년-](\d{1,2})[월-](\d{1,2})',  # 2025년12월25일
-                r'(\d{1,2})[월-](\d{1,2})[일]',          # 12월25일
-            ]
-            
-            for pattern in date_patterns:
-                match = re.search(pattern, user_input)
-                if match:
-                    if len(match.groups()) == 3:
-                        year, month, day = match.groups()
-                        date_value = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-                    else:
-                        year = "2025"  # Default year
-                        month, day = match.groups()
-                        date_value = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-                    
-                    result = user_db_update_tool(state, user_id, "wedding_date", date_value)
-                    if "Successfully" in result:
-                        changes_made += 1
-                        update_details.append(f"wedding_date: {date_value}")
-                    break
-        
-        elif update_type == "budget":
-            # Extract budget from user input
-            import re
-            budget_patterns = [
-                r'(\d+)억',     # 2억
-                r'(\d+)천만',   # 5천만
-                r'(\d+)만원?',  # 3000만원
-            ]
-            
-            for pattern in budget_patterns:
-                match = re.search(pattern, user_input)
-                if match:
-                    value = int(match.group(1))
-                    if '억' in pattern:
-                        budget_manwon = value * 10000
-                    elif '천만' in pattern:
-                        budget_manwon = value * 1000
-                    else:
-                        budget_manwon = value
-                    
-                    result = user_db_update_tool(state, user_id, "total_budget_manwon", budget_manwon)
-                    if "Successfully" in result:
-                        changes_made += 1
-                        update_details.append(f"budget: {budget_manwon}만원")
-                    break
-        
-        elif update_type == "guest_count":
-            # Extract guest count
-            import re
-            guest_match = re.search(r'(\d+)명?[의]?.*[손님|게스트|하객]', user_input)
-            if guest_match:
-                guest_count = int(guest_match.group(1))
-                result = user_db_update_tool(state, user_id, "guest_count", guest_count)
-                if "Successfully" in result:
-                    changes_made += 1
-                    update_details.append(f"guest_count: {guest_count}명")
-        
-        if changes_made > 0:
-            return {
-                "success": True,
-                "data": {
-                    "changes_made": changes_made,
-                    "update_details": update_details,
-                    "user_id": user_id
-                },
-                "message": f"Successfully updated {changes_made} profile fields"
-            }
-        else:
-            return {
-                "success": False,
-                "error": "No valid update information found in user input",
-                "data": None
-            }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"User update execution failed: {str(e)}",
-            "data": None
-        }
+        if not user_id or not update_type:
+            return {"success": False, "error": "User ID or update type is missing", "data": None}
 
+        # 상태에서 직접 값을 가져와 툴에 전달
+        if update_type == "budget":
+            new_value = state.get('total_budget_manwon')
+            field_to_update = "total_budget_manwon"
+        # 다른 업데이트 타입(wedding_date, guest_count)에 대한 로직 추가 가능
+        else:
+             return {"success": False, "error": f"Unsupported update type: {update_type}", "data": None}
+
+        if new_value is not None:
+             print(f"👤 프로필 업데이트: {field_to_update} -> {new_value}")
+             return user_db_update_tool(state, user_id, field_to_update, new_value)
+        
+        return {"success": False, "error": "No value found in state for the requested update", "data": None}
+    
+    except Exception as e:
+        return {"success": False, "error": f"User update execution failed: {str(e)}", "data": None}
+    
 def general_response_node(state: dict) -> dict:
     """
     General response node that handles non-specific queries with contextual wedding topic guidance.
@@ -1445,33 +1202,35 @@ def response_generation_node(state: State) -> State:
         if profile:
             context_parts.append(f"사용자 프로필: {json.dumps(profile, ensure_ascii=False)}")
         
+        successful_tools = [] 
+
         # Add tool results context
-        successful_tools = [r for r in tool_results if r.get('success')]
-        if successful_tools:
-            tools_summary = []
-            for result in successful_tools:
-                tool_name = result['tool_name']
-                output = result.get('output', {})
-                
-                if isinstance(output, dict) and output.get('success'):
-                    data = output.get('data', {})
-                    if tool_name == 'db_query_tool':
-                        count = data.get('total_count', 0)
-                        tools_summary.append(f"데이터베이스 검색: {count}개 결과 발견")
-                    elif tool_name == 'web_search_tool':
-                        count = data.get('total_count', 0)
-                        tools_summary.append(f"웹 검색: {count}개 관련 정보 수집")
-                    elif tool_name == 'calculator_tool':
-                        result_val = data.get('result')
-                        tools_summary.append(f"계산 결과: {result_val}")
-                    elif tool_name == 'user_db_update_tool':
-                        field = data.get('field', 'unknown')
-                        tools_summary.append(f"프로필 업데이트: {field} 정보 저장")
-                else:
-                    tools_summary.append(f"{tool_name}: 실행됨")
+        if tool_results and isinstance(tool_results, dict):
+            # 딕셔너리의 값(value)들을 순회하도록 수정
+            successful_tools = [res for tool, res in tool_results.items() if isinstance(res, dict) and res.get('success')]
             
-            if tools_summary:
-                context_parts.append("실행된 작업: " + ", ".join(tools_summary))
+            if successful_tools:
+                tools_summary = []
+                # tool_results 딕셔너리를 올바르게 순회
+                for tool_name, result_output in tool_results.items():
+                    if isinstance(result_output, dict) and result_output.get('success'):
+                        data = result_output.get('data', {})
+                        if tool_name == 'db_query_tool':
+                            count = data.get('total_count', 0)
+                            tools_summary.append(f"데이터베이스 검색: {count}개 결과 발견")
+                        elif tool_name == 'web_search_tool':
+                            count = data.get('total_results', 0)
+                            tools_summary.append(f"웹 검색: {count}개 관련 정보 수집")
+                        elif tool_name == 'calculator_tool':
+                            result_val = data.get('result')
+                            tools_summary.append(f"계산 결과: {result_val}")
+                        elif tool_name == 'user_db_update_tool':
+                            update_details = data.get('update_details', [])
+                            if update_details:
+                                tools_summary.append(f"프로필 업데이트: {', '.join(update_details)}")
+                
+                if tools_summary:
+                    context_parts.append("실행된 작업: " + ", ".join(tools_summary))
         
         # Create context string
         context_string = "\n\n".join(context_parts) if context_parts else "일반 상담 요청"
