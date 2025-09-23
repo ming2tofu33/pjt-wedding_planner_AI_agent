@@ -967,6 +967,302 @@ def execute_user_db_update_tool(state: dict) -> dict:
             "data": None
         }
 
+def general_response_node(state: dict) -> dict:
+    """
+    General response node that handles non-specific queries with contextual wedding topic guidance.
+    
+    This node provides comprehensive responses to general questions while maintaining user engagement
+    through natural conversation flow. The node serves as the fallback handler for queries that
+    don't require specific tool execution or vendor recommendations.
+    
+    Core Functionality:
+    - Processes general questions with thorough, helpful responses
+    - Maintains natural conversation flow without forced topic redirection
+    - Subtly guides conversation toward wedding planning topics when appropriate
+    - Leverages user memory context to personalize responses
+    - Provides FAQ-style answers for common wedding planning questions
+    - Handles casual conversation and relationship-building interactions
+    
+    Response Strategy:
+    - Primary Focus: Answer the user's actual question comprehensively
+    - Secondary Goal: Natural topic bridging to wedding planning when contextually appropriate
+    - Personalization: Incorporate user profile information when relevant
+    - Tone Management: Maintain helpful, friendly, and professional tone
+    - Engagement: End with gentle conversation steering toward wedding topics
+    
+    The node avoids forced topic changes but creates natural opportunities for wedding-related
+    follow-up questions through contextual bridges and relevant suggestions.
+    
+    Args:
+        state (dict): State containing user_input, user_memo, and conversation context
+        
+    Returns:
+        dict: Updated state with response_content and conversation guidance
+    """
+    
+    user_input = state.get('user_input', '').strip()
+    user_memo = state.get('user_memo', {})
+    user_id = state.get('user_id')
+    
+    try:
+        if not user_input:
+            state['status'] = "error"
+            state['reason'] = "No user input provided for general response"
+            return state
+        
+        # Analyze input to determine response approach
+        response_context = _analyze_input_context(user_input, user_memo)
+        
+        # Generate core response based on question type
+        core_response = _generate_core_response(user_input, response_context, user_memo)
+        
+        # Add natural wedding topic bridge if appropriate
+        final_response = _add_wedding_topic_bridge(core_response, response_context, user_memo)
+        
+        # Update state with response
+        state['response_content'] = final_response
+        state['response_metadata'] = {
+            'response_type': 'general_response',
+            'topic_bridge_added': response_context.get('bridge_appropriate', False),
+            'personalization_level': response_context.get('personalization_level', 'basic'),
+            'generated_at': datetime.now().isoformat()
+        }
+        
+        state['status'] = "ok"
+        
+        print(f"💬 일반 응답 생성 완료 (길이: {len(final_response)}자)")
+        
+        return state
+        
+    except Exception as e:
+        state['status'] = "error"
+        state['reason'] = f"General response generation failed: {str(e)}"
+        print(f"❌ 일반 응답 생성 오류: {str(e)}")
+        return state
+
+
+def _analyze_input_context(user_input: str, user_memo: dict) -> dict:
+    """Analyze user input to determine appropriate response strategy."""
+    
+    input_lower = user_input.lower()
+    profile = user_memo.get('profile', {})
+    
+    context = {
+        'question_type': 'general',
+        'topic_category': 'other',
+        'personalization_level': 'basic',
+        'bridge_appropriate': True,
+        'wedding_related': False
+    }
+    
+    # Detect question types
+    if any(word in input_lower for word in ['안녕', '하이', '좋은', '날씨', '기분']):
+        context['question_type'] = 'greeting'
+        context['topic_category'] = 'casual'
+    
+    elif any(word in input_lower for word in ['뭐', '무엇', '어떻게', '왜', '언제', '어디서']):
+        context['question_type'] = 'inquiry'
+        context['topic_category'] = 'informational'
+    
+    elif any(word in input_lower for word in ['결혼', '웨딩', '신혼', '결혼식', '예식', '신부', '신랑']):
+        context['wedding_related'] = True
+        context['question_type'] = 'wedding_general'
+        context['topic_category'] = 'wedding'
+        context['bridge_appropriate'] = False  # Already wedding-related
+    
+    elif any(word in input_lower for word in ['감사', '고마워', '도움', '좋아']):
+        context['question_type'] = 'appreciation'
+        context['topic_category'] = 'positive'
+    
+    elif any(word in input_lower for word in ['힘들', '어려워', '고민', '걱정']):
+        context['question_type'] = 'concern'
+        context['topic_category'] = 'supportive'
+    
+    # Determine personalization level based on available user info
+    if profile.get('name') or profile.get('wedding_date'):
+        context['personalization_level'] = 'high'
+    elif profile.get('user_id'):
+        context['personalization_level'] = 'medium'
+    
+    # Adjust bridge appropriateness based on context
+    if context['question_type'] in ['appreciation', 'concern']:
+        context['bridge_appropriate'] = True
+    elif context['topic_category'] == 'casual':
+        context['bridge_appropriate'] = True
+    
+    return context
+
+
+def _generate_core_response(user_input: str, context: dict, user_memo: dict) -> str:
+    """Generate core response based on question type and context."""
+    
+    question_type = context.get('question_type', 'general')
+    profile = user_memo.get('profile', {})
+    user_name = profile.get('name', '')
+    
+    # Response templates based on question type
+    if question_type == 'greeting':
+        responses = [
+            f"안녕하세요{f' {user_name}님' if user_name else ''}! 오늘 하루는 어떻게 보내고 계신가요?",
+            f"반가워요{f' {user_name}님' if user_name else ''}! 무엇을 도와드릴까요?",
+            "좋은 하루네요! 오늘은 어떤 일이 있으셨나요?"
+        ]
+        return _select_appropriate_response(responses, context)
+    
+    elif question_type == 'wedding_general':
+        return _handle_wedding_general_question(user_input, user_memo)
+    
+    elif question_type == 'inquiry':
+        return _handle_general_inquiry(user_input, context, user_memo)
+    
+    elif question_type == 'appreciation':
+        responses = [
+            "도움이 되었다니 정말 기뻐요! 언제든 궁금한 것이 있으시면 말씀해 주세요.",
+            "감사하다고 말씀해 주셔서 감동이에요. 더 도움이 필요하시면 언제든지 연락해 주세요!",
+            "천만에요! 여러분의 만족스러운 반응이 저에게는 최고의 보상입니다."
+        ]
+        return _select_appropriate_response(responses, context)
+    
+    elif question_type == 'concern':
+        responses = [
+            "걱정이 많으시군요. 천천히 하나씩 해결해 나가면 분명히 좋은 결과가 있을 거예요.",
+            "어려운 상황이시네요. 하지만 모든 문제에는 해결책이 있다고 생각해요. 함께 찾아볼까요?",
+            "힘든 시간을 보내고 계신 것 같아요. 제가 도울 수 있는 부분이 있다면 언제든 말씀해 주세요."
+        ]
+        return _select_appropriate_response(responses, context)
+    
+    else:
+        # General fallback response
+        return _generate_general_fallback_response(user_input, user_memo)
+
+
+def _handle_wedding_general_question(user_input: str, user_memo: dict) -> str:
+    """Handle general wedding-related questions."""
+    
+    profile = user_memo.get('profile', {})
+    input_lower = user_input.lower()
+    
+    if '준비' in input_lower and ('힘들' in input_lower or '어려워' in input_lower):
+        return """결혼 준비가 힘드시죠? 정말 많은 분들이 같은 고민을 하세요. 
+결혼식 준비는 단계적으로 접근하는 것이 중요해요. 
+먼저 예산과 날짜, 하객 규모를 정하고, 그 다음에 예식장과 스튜디오를 선택하시는 것을 추천드려요."""
+    
+    elif '언제' in input_lower and '시작' in input_lower:
+        wedding_date = profile.get('wedding_date')
+        if wedding_date:
+            return f"""결혼식이 {wedding_date}로 예정되어 있으시니, 지금부터 차근차근 준비하시면 충분해요.
+보통 결혼식 3-6개월 전부터 본격적으로 준비하시는 분들이 많아요.
+예식장 예약은 빠를수록 좋고, 드레스나 턱시도는 2-3개월 전에 준비하시면 됩니다."""
+        else:
+            return """결혼 준비는 보통 결혼식 3-6개월 전부터 시작하시는 것을 추천해요.
+먼저 예식 날짜부터 정하시는 것이 좋겠네요."""
+    
+    else:
+        return """결혼 준비에 대해 궁금한 점이 있으시군요! 
+결혼식 준비는 생각보다 많은 것들을 고려해야 하지만, 체계적으로 접근하면 충분히 해낼 수 있어요.
+예산, 날짜, 예식장, 스튜디오 등 어떤 부분이 가장 궁금하신가요?"""
+
+
+def _handle_general_inquiry(user_input: str, context: dict, user_memo: dict) -> str:
+    """Handle general inquiry questions."""
+    
+    input_lower = user_input.lower()
+    
+    # Common general questions with helpful responses
+    if any(word in input_lower for word in ['날씨', '기온', '온도']):
+        return """오늘 날씨 정보는 날씨 앱이나 포털 사이트에서 정확히 확인하실 수 있어요.
+날씨가 좋은 날이면 야외 웨딩이나 스튜디오 촬영하기에도 좋겠네요!"""
+    
+    elif any(word in input_lower for word in ['시간', '몇시', '언제']):
+        return """정확한 시간 정보가 필요하시군요. 
+결혼식 시간 계획을 세우실 때는 보통 낮 12시나 2시, 4시에 예식을 많이 하세요."""
+    
+    elif any(word in input_lower for word in ['음식', '요리', '맛집']):
+        return """맛있는 음식에 관심이 많으시네요! 
+결혼식 피로연이나 신혼여행 맛집 투어도 미리 계획해 보시면 어떨까요?"""
+    
+    elif any(word in input_lower for word in ['돈', '비용', '가격']):
+        return """비용에 대해 관심이 있으시군요. 
+결혼 준비도 예산 계획을 미리 세워두시면 훨씬 수월하게 진행하실 수 있어요."""
+    
+    else:
+        return f"""'{user_input}'에 대해 구체적인 정보를 제공해 드리기는 어렵지만, 
+관련된 정보를 찾아서 도움을 드리고 싶어요."""
+
+
+def _generate_general_fallback_response(user_input: str, user_memo: dict) -> str:
+    """Generate fallback response for general questions."""
+    
+    profile = user_memo.get('profile', {})
+    user_name = profile.get('name', '')
+    
+    responses = [
+        f"흥미로운 질문이네요{f' {user_name}님' if user_name else ''}! 더 구체적으로 설명해 주시면 더 도움이 될 것 같아요.",
+        f"좋은 점을 말씀해 주셨네요. 조금 더 자세히 알려주시면 더 정확한 답변을 드릴 수 있을 것 같아요.",
+        f"그런 관점에서 생각해 보시는군요! 어떤 부분이 가장 궁금하신지 알려주시면 좋겠어요."
+    ]
+    
+    return responses[hash(user_input) % len(responses)]
+
+
+def _add_wedding_topic_bridge(core_response: str, context: dict, user_memo: dict) -> str:
+    """Add natural wedding topic bridge to the response if appropriate."""
+    
+    if not context.get('bridge_appropriate', False):
+        return core_response
+    
+    if context.get('wedding_related', False):
+        return core_response  # Already wedding-related, no bridge needed
+    
+    profile = user_memo.get('profile', {})
+    wedding_date = profile.get('wedding_date')
+    
+    # Generate contextual bridges based on user profile
+    if wedding_date:
+        bridge_options = [
+            f" 그런데 {wedding_date} 결혼식 준비는 어떻게 진행되고 있나요?",
+            f" 참, 결혼식 준비 중이신데 도움이 필요한 부분은 없으신가요?",
+            f" 결혼 준비로 바쁘실 텐데, 다른 궁금한 점은 없으신지요?"
+        ]
+    elif profile.get('total_budget_manwon'):
+        budget = profile.get('total_budget_manwon')
+        bridge_options = [
+            f" 결혼 준비 예산 {budget}만원으로 계획하고 계시는데, 어떤 부분부터 시작해볼까요?",
+            " 결혼 준비는 어떻게 진행되고 있나요?",
+            " 혹시 결혼 준비 관련해서 궁금한 점이 있으시면 언제든 물어보세요!"
+        ]
+    else:
+        bridge_options = [
+            " 혹시 결혼 준비 계획이 있으시다면 언제든 도움을 요청해 주세요!",
+            " 결혼이나 웨딩과 관련된 궁금한 점이 있으시면 편하게 말씀해 주세요.",
+            " 결혼 준비에 대한 조언이 필요하시면 언제든지 연락해 주세요!"
+        ]
+    
+    # Select appropriate bridge based on context
+    question_type = context.get('question_type', 'general')
+    if question_type == 'concern':
+        # More supportive bridge for concerns
+        bridge = " 결혼 준비로 고민이 있으시다면 함께 해결책을 찾아보아요!"
+    elif question_type == 'appreciation':
+        # Encouraging bridge for positive interactions
+        bridge = " 결혼 준비도 이렇게 긍정적인 마음으로 하시면 분명 멋진 결과가 있을 거예요!"
+    else:
+        bridge = bridge_options[hash(core_response) % len(bridge_options)]
+    
+    return core_response + bridge
+
+
+def _select_appropriate_response(responses: List[str], context: dict) -> str:
+    """Select most appropriate response based on context."""
+    
+    personalization = context.get('personalization_level', 'basic')
+    
+    if personalization == 'high':
+        return responses[0]  # Most personalized
+    elif personalization == 'medium':
+        return responses[1] if len(responses) > 1 else responses[0]
+    else:
+        return responses[-1]  # Most generic
 
 def memo_update_node(state: State) -> State:
     """
