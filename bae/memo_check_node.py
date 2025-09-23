@@ -1,6 +1,5 @@
 # 목적: 기존 사용자의 메모(JSON)를 로드하고, 없으면 초기 메모를 생성해 State에 주입
 import json
-import uuid 
 from datetime import datetime
 from typing import Optional
 
@@ -8,18 +7,8 @@ from state_mvp import (
     State,
     create_empty_user_memo,
     get_memo_file_path,
+    ensure_user_id,  # 새로 추가된 함수 사용
 )
-
-def _ensure_user_id(state: State) -> str:
-    """
-    user_id가 없으면 UUID 기반 임시 ID를 생성.
-    - 프로덕션에선 로그인/쿠키/디바이스ID 등으로 대체 가능.
-    """
-    if state.get("user_id"):
-        return state["user_id"]
-    generated = f"user-{uuid.uuid4().hex}"
-    state["user_id"] = generated
-    return generated
 
 def _load_json(path: str) -> Optional[dict]:
     try:
@@ -42,13 +31,14 @@ def _save_json(path: str, data: dict) -> bool:
 def memo_check_node(state: State) -> State:
     """
     기존 사용자의 메모를 확인하고 컨텍스트를 로드합니다.
-    - user_id가 없으면 UUID로 생성
+    - MVP 단계에서는 고정 user_id 사용 (대화 연속성 보장)
     - 메모 파일이 있으면 로드, 없거나 손상이면 새 메모 생성
-    - state.user_memo / memo_file_path / memo_load_success 세팅
-    - 편의상 conversation_summary를 state.conversation_summary로 반영
+    - 대화 히스토리에서 최근 맥락 추출
+    - state.user_memo / memo_file_path 세팅
     """
     try:
-        uid = _ensure_user_id(state)
+        # MVP용 고정 user_id 보장 (대화 연속성을 위해)
+        uid = ensure_user_id(state)
         memo_path = get_memo_file_path(uid)
         state["memo_file_path"] = memo_path
 
@@ -70,19 +60,40 @@ def memo_check_node(state: State) -> State:
         state["conversation_summary"] = (memo.get("conversation_summary")
                                          if isinstance(memo, dict) else None)
 
+        # 대화 히스토리에서 최근 맥락 추출 (MessagesState 활용)
+        messages = state.get("messages", [])
+        if messages:
+            # 최근 대화가 있으면 이전 맥락 파악
+            recent_messages = messages[-6:]  # 최근 6개 메시지만 (3턴 대화)
+            conversation_context = []
+            for msg in recent_messages:
+                if hasattr(msg, 'content'):
+                    role = getattr(msg, 'type', 'unknown')
+                    content = msg.content
+                    conversation_context.append(f"{role}: {content}")
+                elif isinstance(msg, dict):
+                    role = msg.get('type', msg.get('role', 'unknown'))
+                    content = msg.get('content', '')
+                    conversation_context.append(f"{role}: {content}")
+            
+            # 대화 맥락을 state에 저장 (다른 노드에서 활용 가능)
+            state["recent_conversation_context"] = "\n".join(conversation_context)
+        else:
+            # 첫 대화인 경우
+            state["recent_conversation_context"] = "첫 대화 시작"
+
         # 상태/로그용 텍스트(선택)
         created_or_loaded = "created" if created_new else "loaded"
+        msg_count = len(messages) if messages else 0
         state["status"] = "ok"
         state["reason"] = None
-        state["response_content"] = f"[memo_check] {created_or_loaded} memo for user_id={uid}"
+        state["response_content"] = f"[memo_check] {created_or_loaded} memo for user_id={uid}, messages={msg_count}"
 
         return state
 
     except Exception as e:
         # 치명적이어도 다운시키지 않고 빈 메모로 복구
-        if not state.get("user_id"):
-            state["user_id"] = f"user-{uuid.uuid4().hex}"  
-        uid = state["user_id"]
+        uid = ensure_user_id(state)  # 에러 상황에서도 user_id 보장
         memo_path = get_memo_file_path(uid)
         state["memo_file_path"] = memo_path
 
