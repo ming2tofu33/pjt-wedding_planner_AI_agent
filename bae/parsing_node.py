@@ -3,7 +3,7 @@ import os
 import json
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
-from state_mvp import State, memo_set_budget, memo_set_wedding_date
+from state_mvp import State, memo_set_budget, memo_set_wedding_date, ensure_user_id
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -14,9 +14,13 @@ load_dotenv()
 def _llm() -> ChatOpenAI:
     return ChatOpenAI(model=os.getenv("LLM_MODEL", "gpt-4o"), temperature=0)
 
-# ---- 파서 프롬프트 (LLM 주도 파싱) ----
+# ---- 대화 맥락 포함 파서 프롬프트 ----
 SYSTEM = """You are a wedding-planner data extractor.
 Return ONLY a valid JSON object with the fields below. No comments, no extra text.
+
+You can see previous conversation context to better understand the current request.
+If the current message refers to previous information (like "더 저렴한 곳", "다른 지역", "그런 업체"), 
+use the conversation context to maintain continuity.
 
 Normalization rules:
 - budget_manwon: integer in 만원 unit. Examples: "132만원" -> 132, "1,320,000원" -> 132, "1.5백만원" -> 150.
@@ -38,11 +42,19 @@ Output schema (keys must exist):
 }}
 """
 
-USER_TMPL = """사용자 메시지:
+USER_TMPL = """이전 대화 맥락:
+{conversation_context}
+
+현재 사용자 메시지:
 {user_text}
+
+메모된 정보:
+- 총 예산: {current_budget}만원
+- 결혼 날짜: {wedding_date}
+- 이전 검색: {previous_searches}
 """
 
-# 프롬프트 재정의 (캐시 문제 방지)
+# 프롬프트 재정의 (대화 맥락 포함)
 PROMPT = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM),
@@ -65,6 +77,22 @@ def _latest_user_text(state: State) -> Optional[str]:
         if isinstance(content, str) and (role in (None, "human", "user")):
             return content.strip()
     return None
+
+def _get_conversation_context(state: State) -> str:
+    """대화 맥락을 문자열로 가져오기"""
+    return state.get("recent_conversation_context", "첫 대화")
+
+def _get_previous_searches(state: State) -> str:
+    """이전 검색 정보 요약"""
+    user_memo = state.get("user_memo")
+    if not user_memo:
+        return "없음"
+    
+    profile = user_memo.get("profile", {})
+    locations = profile.get("preferred_locations", [])
+    if locations:
+        return f"선호 지역: {', '.join(locations)}"
+    return "없음"
 
 def _safe_parse_json(raw: str) -> Optional[Dict[str, Any]]:
     """LLM 응답에서 JSON 추출 (마크다운 코드블록 등 처리)"""
@@ -97,9 +125,13 @@ def _coerce_int(v: Any, default: int = 5) -> int:
 def parsing_node(state: State) -> State:
     """
     사용자에게 입력받은 메시지를 LLM으로 파싱하고 State를 채웁니다.
+    - 대화 맥락과 메모된 정보를 함께 고려하여 파싱
     - LLM이 의도를 판단하여 JSON 반환
     - 반환된 budget/wedding_date는 메모에 동기화(만원/ISO)
     """
+    # user_id 보장
+    ensure_user_id(state)
+    
     text = _latest_user_text(state)
     if not text:
         state["status"] = "empty"
@@ -107,19 +139,23 @@ def parsing_node(state: State) -> State:
         return state
 
     try:
-        # 디버깅: 프롬프트 변수 확인
-        required_vars = PROMPT.input_variables
-        print(f"🔍 DEBUG - Required variables: {required_vars}")
+        # 대화 맥락 및 메모 정보 준비
+        conversation_context = _get_conversation_context(state)
+        current_budget = state.get("total_budget_manwon") or "없음"
+        wedding_date = state.get("wedding_date") or "없음"
+        previous_searches = _get_previous_searches(state)
+        
+        # 파라미터 구성
+        invoke_params = {
+            "user_text": text,
+            "conversation_context": conversation_context,
+            "current_budget": current_budget,
+            "wedding_date": wedding_date,
+            "previous_searches": previous_searches
+        }
+        
         print(f"🔍 DEBUG - Input text: {text[:50]}...")
-        
-        # 안전한 파라미터 구성
-        invoke_params = {"user_text": text}
-        
-        # 혹시 다른 변수가 필요하다면 기본값 추가
-        for var in required_vars:
-            if var not in invoke_params:
-                invoke_params[var] = ""
-                print(f"⚠️  WARNING - Added missing variable '{var}' with empty value")
+        print(f"🔍 DEBUG - Conversation context: {conversation_context[:100]}...")
         
         chain = PROMPT | _llm()
         resp = chain.invoke(invoke_params)

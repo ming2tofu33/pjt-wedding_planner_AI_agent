@@ -1,5 +1,3 @@
-# graph_builder.py (PATCH: minimal changes)
-
 from langgraph.graph import START, END, StateGraph
 from state_mvp import State
 from parsing_node import parsing_node
@@ -10,6 +8,9 @@ from general_response_node import general_response_node
 from memo_update_node import memo_update_node
 from response_generation_node import response_generation_node
 from error_handler_node import error_handler_node
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 라우팅 함수들
 def _after_parsing(state: State) -> str:
@@ -35,11 +36,9 @@ def _after_general(state: State) -> str:
 def _after_memo_update(state: State) -> str:
     return "error_handler_node" if state.get("status") == "error" else "response_generation_node"
 
-# ===== CHANGED: END 객체가 아니라 "__end__" 문자열을 반환해야 매핑이 맞습니다.
 def _after_response_generation(state: State) -> str:
     return "error_handler_node" if state.get("status") == "error" else "__end__"
 
-# ===== CHANGED: 동일하게 "__end__" 문자열 반환
 def _after_error(state: State) -> str:
     return "__end__"
 
@@ -91,8 +90,8 @@ builder.add_conditional_edges("memo_update_node", _after_memo_update, {
 })
 
 builder.add_conditional_edges("response_generation_node", _after_response_generation, {
-    "error_handler_node": "error_handler_node",
     "__end__": END,
+    "error_handler_node": "error_handler_node",
 })
 
 builder.add_conditional_edges("error_handler_node", _after_error, {
@@ -101,15 +100,3 @@ builder.add_conditional_edges("error_handler_node", _after_error, {
 
 # 컴파일
 app = builder.compile()
-
-# 테스트용
-if __name__ == "__main__":
-    from pprint import pprint
-    result = app.invoke({
-        "user_input": "압구정 웨딩홀 3곳 추천해줘. 예산은 5000만원!",
-        "status": "ok"
-    })
-    print("\n=== FINAL ANSWER ===")  # <= 추가: 최종 답변 바로 확인
-    print(result.get("answer"))
-    print("\n=== STATE SNAPSHOT ===")
-    pprint(result)
