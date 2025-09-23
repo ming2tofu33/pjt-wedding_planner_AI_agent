@@ -1,13 +1,16 @@
 from langgraph.graph import START, END, StateGraph
-from state_mvp import State
-from parsing_node import parsing_node
-from memo_check_node import memo_check_node
-from conditional_router import conditional_router
-from tool_execution_node import tool_execution_node
-from general_response_node import general_response_node
-from memo_update_node import memo_update_node
-from response_generation_node import response_generation_node
-from error_handler_node import error_handler_node
+from state import State
+from nodes import (
+    parsing_node, 
+    memo_check_node, 
+    conditional_router, 
+    recommendation_node, 
+    tool_execution_node, 
+    general_response_node, 
+    memo_update_node, 
+    response_generation_node, 
+    error_handler_node
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,6 +28,8 @@ def _route_from_router(state: State) -> str:
     d = state.get("routing_decision") or "general_response"
     if d == "tool_execution":
         return "tool_execution_node"
+    if d == "recommendation":
+        return "recommendation_node"
     return "general_response_node"
 
 def _after_tool_exec(state: State) -> str:
@@ -42,6 +47,9 @@ def _after_response_generation(state: State) -> str:
 def _after_error(state: State) -> str:
     return "__end__"
 
+def _after_recommendation(state: State) -> str:
+    return "error_handler_node" if state.get("status") == "error" else "memo_update_node"
+
 # 그래프 빌드
 builder = StateGraph(State)
 
@@ -49,6 +57,7 @@ builder = StateGraph(State)
 builder.add_node("parsing_node", parsing_node)
 builder.add_node("memo_check_node", memo_check_node)
 builder.add_node("conditional_router", conditional_router)
+builder.add_node("recommendation_node", recommendation_node)
 builder.add_node("tool_execution_node", tool_execution_node)
 builder.add_node("general_response_node", general_response_node)
 builder.add_node("memo_update_node", memo_update_node)
@@ -71,6 +80,12 @@ builder.add_conditional_edges("memo_check_node", _after_memo_check, {
 builder.add_conditional_edges("conditional_router", _route_from_router, {
     "tool_execution_node": "tool_execution_node",
     "general_response_node": "general_response_node",
+    "recommendation_node": "recommendation_node",
+    "error_handler_node": "error_handler_node",
+})
+
+builder.add_conditional_edges("recommendation_node", _after_recommendation, {
+    "memo_update_node": "memo_update_node",
     "error_handler_node": "error_handler_node",
 })
 

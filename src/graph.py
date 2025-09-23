@@ -1,3 +1,0 @@
-
-print('min')
-print('bae')

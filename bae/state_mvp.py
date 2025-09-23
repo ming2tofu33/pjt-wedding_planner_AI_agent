@@ -6,6 +6,9 @@ from datetime import datetime
 from langgraph.graph import MessagesState
 import os
 
+# ---------- MVP 설정 ----------
+MVP_DEFAULT_USER_ID = "mvp_user_001"  # MVP 단계에서 사용할 고정 사용자 ID
+
 # ---------- Long-term Memory ----------
 class UserProfile(TypedDict):
     """
@@ -45,6 +48,16 @@ def get_memo_file_path(user_id: str) -> str:
     if not os.path.exists(memories_dir):
         os.makedirs(memories_dir)
     return os.path.join(memories_dir, f"user_{user_id}_memo.json")
+
+def ensure_user_id(state: "State") -> str:
+    """
+    MVP용 user_id 보장 함수
+    - State에 user_id가 없으면 MVP 기본값 설정
+    - 대화 연속성을 위해 항상 동일한 ID 반환
+    """
+    if not state.get("user_id"):
+        state["user_id"] = MVP_DEFAULT_USER_ID
+    return state["user_id"]
 
 # ---------- 메인 State (MessagesState 상속: 대화 기록 자동 관리) ----------
 class State(MessagesState):
@@ -112,19 +125,17 @@ class State(MessagesState):
 # ---------- (선택) 편의 유틸 ----------
 def memo_set_budget(state: State, manwon: Optional[int]) -> None:
     """State와 메모 모두에 예산(만원)을 반영."""
+    user_id = ensure_user_id(state)  # user_id 보장
     if state.get("user_memo") is None:
-        if state.get("user_id") is None:
-            return
-        state["user_memo"] = create_empty_user_memo(state["user_id"])
+        state["user_memo"] = create_empty_user_memo(user_id)
     state["user_memo"]["profile"]["total_budget_manwon"] = manwon
     state["memo_needs_update"] = True
 
 def memo_set_wedding_date(state: State, date_iso: Optional[str]) -> None:
     """State와 메모 모두에 결혼일(ISO)을 반영."""
+    user_id = ensure_user_id(state)  # user_id 보장
     if state.get("user_memo") is None:
-        if state.get("user_id") is None:
-            return
-        state["user_memo"] = create_empty_user_memo(state["user_id"])
+        state["user_memo"] = create_empty_user_memo(user_id)
     state["user_memo"]["profile"]["wedding_date"] = date_iso
     state["memo_needs_update"] = True
 
