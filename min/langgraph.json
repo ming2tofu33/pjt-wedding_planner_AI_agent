@@ -1,6 +1,6 @@
 {
     "graphs": {
-        "first_agent": "./graph_b.py:app"
+        "first_agent": "./graph.py:app"
     },
     "env": "./.env",
     "python_version": "3.13",
