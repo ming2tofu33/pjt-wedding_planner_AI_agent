@@ -3,7 +3,6 @@ from state import State
 from nodes import (
     parsing_node, 
     memo_check_node, 
-    conditional_router, 
     recommendation_node, 
     tool_execution_node, 
     general_response_node, 
@@ -12,6 +11,7 @@ from nodes import (
     error_handler_node
 )
 from dotenv import load_dotenv
+from routers import conditional_router
 
 load_dotenv()
 
@@ -38,6 +38,9 @@ def _after_tool_exec(state: State) -> str:
 def _after_general(state: State) -> str:
     return "error_handler_node" if state.get("status") == "error" else "response_generation_node"
 
+def _after_recommendation(state: State) -> str:
+    return "error_handler_node" if state.get("status") == "error" else "memo_update_node"
+
 def _after_memo_update(state: State) -> str:
     return "error_handler_node" if state.get("status") == "error" else "response_generation_node"
 
@@ -46,9 +49,6 @@ def _after_response_generation(state: State) -> str:
 
 def _after_error(state: State) -> str:
     return "__end__"
-
-def _after_recommendation(state: State) -> str:
-    return "error_handler_node" if state.get("status") == "error" else "memo_update_node"
 
 # 그래프 빌드
 builder = StateGraph(State)
@@ -84,11 +84,6 @@ builder.add_conditional_edges("conditional_router", _route_from_router, {
     "error_handler_node": "error_handler_node",
 })
 
-builder.add_conditional_edges("recommendation_node", _after_recommendation, {
-    "memo_update_node": "memo_update_node",
-    "error_handler_node": "error_handler_node",
-})
-
 builder.add_conditional_edges("tool_execution_node", _after_tool_exec, {
     "memo_update_node": "memo_update_node",
     "error_handler_node": "error_handler_node",
@@ -96,6 +91,11 @@ builder.add_conditional_edges("tool_execution_node", _after_tool_exec, {
 
 builder.add_conditional_edges("general_response_node", _after_general, {
     "response_generation_node": "response_generation_node",
+    "error_handler_node": "error_handler_node",
+})
+
+builder.add_conditional_edges("recommendation_node", _after_recommendation, {
+    "memo_update_node": "memo_update_node",
     "error_handler_node": "error_handler_node",
 })
 

@@ -3,7 +3,6 @@ from state import State
 from nodes import (
     parsing_node, 
     memo_check_node, 
-    conditional_router, 
     recommendation_node, 
     tool_execution_node, 
     general_response_node, 
@@ -12,6 +11,7 @@ from nodes import (
     error_handler_node
 )
 from dotenv import load_dotenv
+from routers import conditional_router
 
 load_dotenv()
 
@@ -36,7 +36,7 @@ def _after_tool_exec(state: State) -> str:
     return "error_handler_node" if state.get("status") == "error" else "memo_update_node"
 
 def _after_general(state: State) -> str:
-    return "error_handler_node" if state.get("status") == "error" else "response_generation_node"
+    return "error_handler_node" if state.get("status") == "error" else "__end__"
 
 def _after_recommendation(state: State) -> str:
     return "error_handler_node" if state.get("status") == "error" else "memo_update_node"
@@ -90,7 +90,7 @@ builder.add_conditional_edges("tool_execution_node", _after_tool_exec, {
 })
 
 builder.add_conditional_edges("general_response_node", _after_general, {
-    "response_generation_node": "response_generation_node",
+    "__end__": END,
     "error_handler_node": "error_handler_node",
 })
 
