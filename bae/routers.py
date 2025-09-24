@@ -48,180 +48,157 @@ class RoutingPriority:
 
 def conditional_router(state: State) -> State:
     """
-    Intelligent Conditional Routing Node - System Decision Center
+    Simple and Reliable Conditional Routing Node
     
-    This function represents the cognitive core of the wedding planning assistant,
-    responsible for analyzing complex user contexts and making optimal routing
-    decisions. It combines rule-based logic with LLM-powered reasoning to handle
-    ambiguous situations and edge cases that traditional routing cannot address.
-    
-    Advanced Routing Capabilities:
-    - Multi-dimensional context analysis (intent, user state, system capabilities)
-    - LLM-powered disambiguation for complex or ambiguous user requests
-    - Dynamic tool selection based on user profile completeness and preferences
-    - Intelligent fallback strategies for system limitations or failures
-    - Performance-optimized routing to minimize response latency
-    - Context-aware priority assignment for competing processing pathways
-    
-    Decision Matrix Analysis:
-    - User Intent Classification: recommend/tool/general with confidence scoring
-    - Profile Completeness Assessment: determines information gathering needs
-    - Tool Capability Mapping: matches user needs with available system tools
-    - Resource Availability: considers system load and tool reliability
-    - User Experience Optimization: prioritizes pathways leading to best UX
-    
-    Routing Outcomes:
-    - tool_execution: Database queries, calculations, complex multi-step operations
-    - general_response: FAQ answers, educational content, conversational support
-    - recommendation: Vendor suggestions, planning advice (MVP: placeholder)
-    - error_handler: Error recovery, system issues, malformed requests
-    - memo_update: User profile updates, preference changes
-    
-    Input State Analysis:
-    - intent_hint: Primary user intention from parsing_node
-    - vendor_type: Specific service category interest
-    - region_keyword: Geographic preferences for searches
-    - update_type: Profile modification requirements
-    - parsing_confidence: Reliability of intent classification
-    - user_memo: Complete user context and preferences
-    - profile_completeness_score: Information gathering needs assessment
-    
-    Output Guarantees:
-    - routing_decision: Selected processing pathway
-    - tools_to_execute: Optimized tool execution sequence
-    - routing_priority: Decision urgency classification
-    - routing_confidence: System confidence in routing choice
-    - reasoning: Human-readable explanation of routing logic
+    parsing_node에서 이미 분석한 결과를 기반으로 단순하고 확실한 라우팅 결정
     """
+    
+    print("🔀 conditional_router 시작")
     
     touch_processing_timestamp(state)
     
-    # Extract key routing factors from state
+    # parsing_node에서 이미 분석된 결과 가져오기
     intent_hint = state.get('intent_hint', 'general')
+    routing_decision_from_parsing = state.get('routing_decision', '')
     vendor_type = state.get('vendor_type')
     region_keyword = state.get('region_keyword')
-    update_type = state.get('update_type')
-    parsing_confidence = state.get('parsing_confidence', 0.5)
     user_input = state.get('user_input', '')
-    profile_completeness = state.get('profile_completeness_score', 0)
     
-    # Check for system errors or invalid states
-    if state.get('status') == 'error' and not state.get('recovery_attempted'):
-        return _route_to_error_handler(state, "System error detected, initiating recovery")
+    print(f"🔍 입력 분석: intent={intent_hint}, parsing_routing={routing_decision_from_parsing}")
+    
+    # 에러 상태 체크
+    if state.get('status') == 'error':
+        print("❌ 에러 상태 감지 → error_handler로 라우팅")
+        state.update({
+            'routing_decision': 'error_handler',
+            'tools_to_execute': [],
+            'routing_priority': 'high',
+            'routing_confidence': 1.0,
+            'routing_reasoning': 'Error state detected'
+        })
+        return state
     
     try:
-        # Phase 1: Context Analysis and Intelligence Gathering
-        routing_context = _analyze_routing_context(state)
-        
-        # Phase 2: LLM-Powered Routing Decision with Advanced Reasoning
-        routing_analysis_prompt = f"""
-        You are the central routing intelligence for a wedding planning AI assistant.
-        Analyze this user interaction and determine the optimal processing pathway.
-        
-        USER REQUEST: "{user_input}"
-        
-        PARSED CONTEXT:
-        - Intent: {intent_hint}
-        - Vendor Type: {vendor_type or 'None'}
-        - Region: {region_keyword or 'None'}
-        - Update Type: {update_type or 'None'}
-        - Parsing Confidence: {parsing_confidence}
-        - Profile Completeness: {profile_completeness}/4
-        
-        SYSTEM CONTEXT:
-        {routing_context}
-        
-        ROUTING OPTIONS:
-        1. "tool_execution" - For database searches, calculations, profile updates
-        2. "general_response" - For FAQ, advice, conversation
-        3. "recommendation" - For vendor suggestions (MVP: basic guidance)
-        4. "error_handler" - For unclear requests or system issues
-        
-        DECISION ANALYSIS REQUIRED:
-        - Which route best serves the user's immediate need?
-        - What tools (if any) should be executed: db_query_tool, calculator_tool, web_search_tool, user_db_update_tool?
-        - What's the confidence level and priority of this decision?
-        - How should the system explain this routing choice?
-        
-        Provide your analysis as a JSON object with:
-        {{
-            "routing_decision": "selected_route",
-            "tools_needed": ["list", "of", "tools"],
-            "priority": "high/medium/low",
-            "confidence": 0.85,
-            "reasoning": "Clear explanation of decision logic",
-            "fallback_route": "backup_option_if_primary_fails"
-        }}
-        """
-        
-        # Get LLM routing decision with structured output
-        analysis_llm = get_analysis_llm()
-        routing_response = analysis_llm.invoke(routing_analysis_prompt)
-        
-        try:
-            # Parse LLM routing decision
-            routing_analysis = json.loads(routing_response.content)
+        # 1단계: parsing_node 결과 우선 사용
+        if routing_decision_from_parsing:
+            routing_decision = routing_decision_from_parsing
+            print(f"✅ parsing_node 결과 사용: {routing_decision}")
+        else:
+            # 2단계: 폴백 로직 (간단한 규칙 기반)
+            if intent_hint == 'general':
+                routing_decision = 'general_response'
+            elif intent_hint == 'wedding':
+                if vendor_type or region_keyword:
+                    routing_decision = 'recommendation'  # 구체적인 요청
+                else:
+                    routing_decision = 'recommendation'  # 일반적인 웨딩 상담
+            else:
+                routing_decision = 'general_response'  # 기본값
             
-            routing_decision = routing_analysis.get('routing_decision', 'general_response')
-            tools_needed = routing_analysis.get('tools_needed', [])
-            priority = routing_analysis.get('priority', 'medium')
-            confidence = routing_analysis.get('confidence', 0.7)
-            reasoning = routing_analysis.get('reasoning', 'Standard routing applied')
-            fallback_route = routing_analysis.get('fallback_route', 'general_response')
-            
-        except (json.JSONDecodeError, AttributeError) as parse_error:
-            print(f"⚠️ LLM routing response parsing failed: {parse_error}")
-            # Intelligent fallback using rule-based logic
-            routing_decision, tools_needed, reasoning = _fallback_routing_logic(state)
-            priority = "medium"
+            print(f"🔄 폴백 로직 사용: {routing_decision}")
+        
+        # 3단계: 툴 선택 (단순 규칙 기반)
+        tools_to_execute = []
+        
+        if routing_decision == 'recommendation':
+            if vendor_type or region_keyword:
+                tools_to_execute = ['db_query_tool', 'web_search_tool']
+            # 일반적인 추천은 툴 없이 진행
+        elif routing_decision == 'tool_execution':
+            # 직접적인 툴 실행 요청
+            tools_to_execute = ['db_query_tool', 'web_search_tool']
+        # general_response는 툴 불필요
+        
+        # 4단계: 우선순위와 신뢰도 설정
+        if routing_decision == 'recommendation':
+            priority = 'medium'
+            confidence = 0.8
+            reasoning = f"Wedding-related request: vendor={vendor_type}, region={region_keyword}"
+        elif routing_decision == 'general_response':
+            priority = 'medium'
+            confidence = 0.9
+            reasoning = "General conversation or FAQ"
+        elif routing_decision == 'tool_execution':
+            priority = 'high'
+            confidence = 0.8
+            reasoning = "Direct tool execution required"
+        else:
+            priority = 'medium'
             confidence = 0.6
-            fallback_route = "general_response"
+            reasoning = "Default routing applied"
         
-        # Phase 3: Advanced Tool Selection and Optimization
-        optimized_tools = _optimize_tool_selection(state, tools_needed, routing_decision)
-        
-        # Phase 4: Routing Validation and Safety Checks
-        validated_routing = _validate_routing_decision(
-            state, routing_decision, optimized_tools, confidence
-        )
-        
-        if validated_routing['requires_fallback']:
-            routing_decision = validated_routing['fallback_route']
-            optimized_tools = validated_routing['fallback_tools']
-            reasoning += f" | Fallback: {validated_routing['fallback_reason']}"
-        
-        # Phase 5: Final State Updates with Comprehensive Metadata
+        # 5단계: State 업데이트
         state.update({
             'routing_decision': routing_decision,
-            'tools_to_execute': optimized_tools,
+            'tools_to_execute': tools_to_execute,
             'routing_priority': priority,
             'routing_confidence': confidence,
             'routing_reasoning': reasoning,
-            'routing_fallback': fallback_route,
-            'routing_metadata': {
-                'analysis_timestamp': datetime.now().isoformat(),
-                'context_factors': routing_context,
-                'llm_analysis_available': True,
-                'validation_passed': not validated_routing['requires_fallback']
-            },
             'status': 'ok'
         })
         
-        # Comprehensive logging for system monitoring
+        # 로깅
         print(f"🎯 ROUTING DECISION: {routing_decision}")
-        print(f"🔧 TOOLS TO EXECUTE: {optimized_tools}")
+        print(f"🔧 TOOLS TO EXECUTE: {tools_to_execute}")
         print(f"⚡ PRIORITY: {priority} | CONFIDENCE: {confidence}")
         print(f"💭 REASONING: {reasoning}")
         
         return state
         
     except Exception as e:
-        print(f"💥 Critical routing failure: {e}")
-        return _route_to_error_handler(
-            state, 
-            f"Routing system failure: {str(e)}",
-            include_diagnostic=True
-        )
+        print(f"🚨 conditional_router 에러: {e}")
+        
+        # 안전한 폴백
+        state.update({
+            'routing_decision': 'general_response',
+            'tools_to_execute': [],
+            'routing_priority': 'low',
+            'routing_confidence': 0.5,
+            'routing_reasoning': f'Router error fallback: {str(e)}',
+            'status': 'ok'  # 계속 진행
+        })
+        
+        import traceback
+        print(f"🚨 전체 스택: {traceback.format_exc()}")
+        
+        return state
+
+
+# 헬퍼 함수들 (기존 코드에서 필요한 경우)
+def _analyze_routing_context(state):
+    """단순한 컨텍스트 분석"""
+    return f"User input analysis for routing"
+
+def _fallback_routing_logic(state):
+    """단순한 폴백 로직"""
+    intent = state.get('intent_hint', 'general')
+    if intent == 'general':
+        return 'general_response', [], 'Fallback general routing'
+    else:
+        return 'recommendation', [], 'Fallback wedding routing'
+
+def _optimize_tool_selection(state, tools_needed, routing_decision):
+    """툴 선택 최적화"""
+    return tools_needed
+
+def _validate_routing_decision(state, routing_decision, tools, confidence):
+    """라우팅 검증"""
+    return {
+        'requires_fallback': False,
+        'fallback_route': 'general_response',
+        'fallback_tools': [],
+        'fallback_reason': ''
+    }
+
+def _route_to_error_handler(state, reason, include_diagnostic=False):
+    """에러 핸들러로 라우팅"""
+    state.update({
+        'routing_decision': 'error_handler',
+        'status': 'error',
+        'reason': reason,
+        'tools_to_execute': []
+    })
+    return state
 
 # ============= ROUTING INTELLIGENCE HELPERS =============
 

@@ -55,36 +55,23 @@ Guidelines:
 def parsing_node(state: State) -> State:
     """
     User Input Parsing and Intent Classification Node
-    
-    This node serves as the entry point for all user interactions, performing
-    intelligent two-stage parsing: first determining if the query is wedding-related,
-    then extracting detailed wedding parameters only when necessary.
-    
-    Core Functions:
-    - Binary intent classification (wedding-related vs general conversation)  
-    - Conditional detailed parsing for wedding queries
-    - Entity extraction (vendor types, locations, budget amounts) when needed
-    - LLM-powered natural language understanding
-    
-    Input Requirements:
-    - user_input: Natural language text from user
-    - user_id: User identifier for context tracking
-    
-    Output Guarantees:
-    - intent_hint: 'wedding' or 'general'
-    - routing_decision: Next processing node
-    - vendor_type: Extracted service category (only for wedding queries)
-    - region_keyword: Location preference (only for wedding queries)
-    - total_budget_manwon: Budget amount (only when mentioned)
-    - status: Processing outcome indicator
     """
     
     from llm import get_parsing_llm, safe_llm_invoke
     
+    # 🔍 디버깅: State 전체 확인
+    print(f"🔍 parsing_node 시작 - 전체 state: {state}")
+    
     touch_processing_timestamp(state)
     user_input = state.get('user_input', '').strip()
     
+    # 🔍 디버깅: user_input 값 확인
+    print(f"🔍 추출된 user_input: '{user_input}'")
+    print(f"🔍 user_input 길이: {len(user_input)}")
+    print(f"🔍 user_input 타입: {type(user_input)}")
+    
     if not user_input:
+        print(f"🚨 빈 입력 감지! state에서 가져온 값: '{state.get('user_input')}'")
         state['status'] = "error"
         state['reason'] = "Empty user input provided"
         return state
@@ -113,10 +100,14 @@ def parsing_node(state: State) -> State:
         답변: (wedding 또는 general만 답하세요)
         """
         
+        print(f"🔍 LLM에 보낼 프롬프트: {intent_prompt}")
+        
         intent_result = safe_llm_invoke(
             intent_prompt, 
             fallback_response="general"
         ).lower().strip()
+        
+        print(f"🔍 LLM 응답 (intent): '{intent_result}'")
         
         # Stage 2: 일반 대화면 여기서 종료
         if "general" in intent_result:
@@ -125,6 +116,7 @@ def parsing_node(state: State) -> State:
                 'routing_decision': 'general_response',
                 'status': 'ok'
             })
+            print(f"🔍 일반 대화로 분류됨")
             return state
         
         # Stage 3: 웨딩 관련이면 세부 정보 파싱
@@ -167,6 +159,8 @@ def parsing_node(state: State) -> State:
             fallback_response="vendor_type: null\nregion: null\nbudget: null\nrequest_type: tool"
         )
         
+        print(f"🔍 LLM 응답 (detail): '{detail_result}'")
+        
         # 결과 파싱
         parsed_info = {}
         for line in detail_result.split('\n'):
@@ -185,6 +179,8 @@ def parsing_node(state: State) -> State:
                 else:
                     parsed_info[key] = value
         
+        print(f"🔍 파싱된 정보: {parsed_info}")
+        
         # State 업데이트
         state.update({
             'intent_hint': 'wedding',
@@ -195,10 +191,13 @@ def parsing_node(state: State) -> State:
             'status': 'ok'
         })
         
-        print(f"파싱 결과: vendor={parsed_info.get('vendor_type')}, region={parsed_info.get('region')}, budget={parsed_info.get('budget')}")
+        print(f"✅ 파싱 완료: vendor={parsed_info.get('vendor_type')}, region={parsed_info.get('region')}, budget={parsed_info.get('budget')}")
         
     except Exception as e:
-        print(f"파싱 에러: {e}")
+        print(f"🚨 파싱 에러: {e}")
+        import traceback
+        print(f"🚨 전체 에러 스택: {traceback.format_exc()}")
+        
         state.update({
             'status': "error",
             'reason': f"Parsing node failed: {str(e)}",
@@ -207,7 +206,6 @@ def parsing_node(state: State) -> State:
         })
     
     return state
-
 
 def memo_check_node(state: State) -> State:
     """
@@ -399,131 +397,86 @@ def recommendation_node(state: State) -> State:
         
     return state
 
-
 def general_response_node(state: State) -> State:
     """
-    General Conversation and FAQ Response Node
+    General Response Node - 툴이 필요하지 않은 일반적인 대화 처리
     
-    This node handles general wedding planning conversations, FAQ responses,
-    and educational content delivery. It leverages LLM's conversational abilities
-    to provide contextually appropriate, helpful, and engaging responses that
-    don't require specific tool execution or vendor recommendations.
-    
-    Core Functions:
-    - Wedding planning educational content generation
-    - FAQ response with personalized context integration  
-    - Conversational engagement and emotional support
-    - Information synthesis from user's existing profile data
-    - Follow-up question generation for continued engagement
-    
-    Response Optimization:
-    - Context-aware personalization using user memory
-    - Emotional tone matching based on user input sentiment
-    - Actionable advice prioritization over generic information
-    - Progressive disclosure of complex wedding planning concepts
-    
-    Input Requirements:
-    - user_input: Natural language query or conversation
-    - user_memo: User profile for personalization context
-    - intent_hint: Should be "general" for this node
-    
-    Output Guarantees:
-    - response_content: Comprehensive, helpful response content
-    - suggestions: Follow-up action recommendations
-    - quick_replies: Conversation continuation options
-    - status: Processing outcome indicator
+    이 노드는 인사, FAQ, 간단한 질문 등을 처리합니다.
     """
     
-    from llm import get_creative_llm, safe_llm_invoke
-    from langchain_core.messages import AIMessage  # 추가: MessagesState용
-    
-    touch_processing_timestamp(state)
-    user_input = state.get('user_input', '')
-    user_memo = state.get('user_memo', {})
-    profile = user_memo.get('profile', {}) if user_memo else {}
+    print("🗣️ general_response_node 실행 시작")
     
     try:
-        # Extract user context for personalization
-        user_context = []
-        if profile.get('wedding_date'):
-            user_context.append(f"결혼 예정일: {profile['wedding_date']}")
-        if profile.get('total_budget_manwon'):
-            user_context.append(f"예산: {profile['total_budget_manwon']}만원")
-        if profile.get('guest_count'):
-            user_context.append(f"하객 수: {profile['guest_count']}명")
-        if profile.get('preferred_locations'):
-            user_context.append(f"선호 지역: {', '.join(profile['preferred_locations'])}")
+        user_input = state.get('user_input', '').strip().lower()
+        
+        # 미리 정의된 응답 패턴
+        response_patterns = {
+            # 인사 관련
+            '안녕': '안녕하세요! 저는 AI 웨딩 플래너 마리예요. 결혼 준비에 대해 궁금한 것이 있으시면 언제든 물어보세요! 💍',
+            'hi': '안녕하세요! 저는 AI 웨딩 플래너 마리예요. 결혼 준비에 대해 궁금한 것이 있으시면 언제든 물어보세요! 💍',
+            'hello': '안녕하세요! 저는 AI 웨딩 플래너 마리예요. 결혼 준비에 대해 궁금한 것이 있으시면 언제든 물어보세요! 💍',
             
-        context_string = " | ".join(user_context) if user_context else "신규 사용자"
+            # 자기소개 관련
+            '이름': '저는 마리예요! AI 웨딩 플래너로 여러분의 행복한 결혼식 준비를 도와드리고 있어요. ✨',
+            '누구': '저는 마리예요! AI 웨딩 플래너로 여러분의 행복한 결혼식 준비를 도와드리고 있어요. ✨',
+            '소개': '저는 AI 웨딩 플래너 마리입니다! 웨딩홀, 스튜디오, 드레스, 메이크업 등 결혼 준비의 모든 것을 도와드려요. 무엇이 궁금하신가요? 💕',
+            
+            # 감사 표현
+            '고마워': '천만에요! 더 궁금한 것이 있으시면 언제든 말씀해주세요. 😊',
+            '감사': '도움이 되었다니 기뻐요! 결혼 준비에 관한 것이라면 무엇이든 물어보세요! 💕',
+            '고맙': '천만에요! 더 궁금한 것이 있으시면 언제든 말씀해주세요. 😊',
+            'thank': 'You\'re welcome! 결혼 준비에 대해 더 궁금한 것이 있으시면 언제든 말씀해주세요! 💕',
+            
+            # 도움 요청
+            '도움': '물론이죠! 웨딩홀, 스튜디오, 드레스, 메이크업 등 결혼 준비의 모든 것을 도와드릴 수 있어요. 구체적으로 어떤 도움이 필요하신가요? 💒',
+            '도와': '물론이죠! 웨딩홀, 스튜디오, 드레스, 메이크업 등 결혼 준비의 모든 것을 도와드릴 수 있어요. 구체적으로 어떤 도움이 필요하신가요? 💒',
+            'help': '물론이죠! 웨딩홀, 스튜디오, 드레스, 메이크업 등 결혼 준비의 모든 것을 도와드릴 수 있어요. 구체적으로 어떤 도움이 필요하신가요? 💒',
+            
+            # 기능 문의
+            '기능': '저는 다음과 같은 기능을 제공해요:\n• 웨딩홀 추천 및 검색\n• 스튜디오 매칭\n• 드레스/한복 정보\n• 메이크업 업체 추천\n• 예산 계산 및 관리\n• 결혼 준비 일정 관리\n무엇부터 시작해볼까요? 🎯',
+            '뭐해': '저는 결혼 준비를 도와드리는 AI 플래너예요! 웨딩홀 찾기, 예산 계산, 업체 추천 등 다양한 도움을 드릴 수 있어요. 어떤 것이 필요하신가요? ✨',
+            '할수있': '저는 다음과 같은 기능을 제공해요:\n• 웨딩홀 추천 및 검색\n• 스튜디오 매칭\n• 드레스/한복 정보\n• 메이크업 업체 추천\n• 예산 계산 및 관리\n• 결혼 준비 일정 관리\n무엇부터 시작해볼까요? 🎯'
+        }
         
-        # 간단하고 자연스러운 한국어 프롬프트
-        general_response_prompt = f"""당신은 마리라는 친근한 웨딩 플래너 AI입니다.
-
-사용자 질문: "{user_input}"
-사용자 정보: {context_string}
-
-다음과 같이 답변해주세요:
-1. 질문에 직접적으로 답변
-2. 가능하면 사용자 정보 활용
-3. 친근하고 도움이 되는 톤
-4. 자연스러운 대화체
-
-간단하고 유용한 답변을 해주세요."""
+        # 패턴 매칭으로 적절한 응답 찾기
+        response = None
+        for keyword, reply in response_patterns.items():
+            if keyword in user_input:
+                response = reply
+                break
         
-        # Generate main response using creative LLM
-        creative_llm = get_creative_llm()
-        response = creative_llm.invoke(general_response_prompt)
-        main_response = response.content if hasattr(response, 'content') else str(response)
+        # 패턴에 맞지 않는 경우 기본 응답
+        if not response:
+            # LLM을 사용해서 더 자연스러운 응답 생성 (선택적)
+            if '?' in user_input or '뭐' in user_input or '어떻게' in user_input:
+                response = "궁금한 것이 있으시군요! 결혼 준비에 관련된 구체적인 질문을 해주시면 더 정확한 답변을 드릴 수 있어요. 예를 들어, '강남 웨딩홀 추천해주세요' 또는 '예산 3000만원으로 뭘 할 수 있나요?' 같은 질문을 해보세요! 💡"
+            else:
+                response = "안녕하세요! 저는 AI 웨딩 플래너 마리예요. 결혼 준비에 대해 궁금한 것이 있으시면 언제든 말씀해주세요! 💍"
         
-        # 간단한 기본 suggestions와 quick_replies (LLM 호출 없이)
-        if '안녕' in user_input or '이름' in user_input:
-            suggestions = ['웨딩 가이드', '예산 상담', '업체 추천']
-            quick_replies = ['가이드', '예산', '추천', '다른 질문']
-        elif '고마' in user_input or '감사' in user_input:
-            suggestions = ['다른 질문', '웨딩 팁', '준비 가이드']
-            quick_replies = ['질문', '팁', '가이드', '도움말']
-        else:
-            suggestions = ['웨딩홀 추천', '예산 계획', '준비 체크리스트']
-            quick_replies = ['웨딩홀', '예산', '체크리스트', '다른 질문']
-        
-        # Update state with generated content
+        # State 업데이트
         state.update({
-            'response_content': main_response,
-            'suggestions': suggestions,
-            'quick_replies': quick_replies,
-            'status': "ok"
+            'response': response,
+            'status': 'ok',
+            'intent_hint': 'general'
         })
         
-        # ★ 핵심 추가: MessagesState에 AI 응답 추가 - Studio에서 대화형으로 표시
-        current_messages = state.get('messages', [])
-        state['messages'] = current_messages + [AIMessage(content=main_response)]
+        print(f"✅ 일반 응답 생성 완료: {response[:50]}...")
         
     except Exception as e:
-        # Robust error handling with helpful fallback
-        fallback_response = f"""안녕하세요! 저는 마리예요.
-
-현재 일시적인 문제가 있지만 결혼 준비에 대해 도움을 드릴 수 있습니다.
-
-기본적인 결혼 준비 순서:
-1. 예산 설정
-2. 웨딩홀 예약  
-3. 스튜디오, 드레스 예약
-4. 세부사항 확정
-
-궁금한 점이 있으시면 다시 말씀해 주세요!"""
-
+        print(f"🚨 general_response_node 에러: {e}")
+        
+        # 에러 발생시 안전한 폴백 응답
+        fallback_response = "안녕하세요! 저는 AI 웨딩 플래너 마리예요. 결혼 준비에 대해 도움이 필요하시면 말씀해주세요! 💍"
+        
         state.update({
-            'response_content': fallback_response,
-            'suggestions': ['웨딩홀 추천', '예산 계획', '준비 체크리스트'],
-            'quick_replies': ['웨딩홀', '예산', '체크리스트', '다른 질문'],
-            'status': "ok",  # Graceful degradation
-            'reason': f"General response generation had issues: {str(e)}"
+            'response': fallback_response,
+            'status': 'ok',  # 사용자에게는 정상적으로 보이도록
+            'reason': f"General response fallback used: {str(e)}"
         })
         
-        # ★ fallback 응답도 MessagesState에 추가
-        current_messages = state.get('messages', [])
-        state['messages'] = current_messages + [AIMessage(content=fallback_response)]
-        
+        import traceback
+        print(f"🚨 전체 에러 스택: {traceback.format_exc()}")
+    
     return state
 
 
