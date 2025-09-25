@@ -10,18 +10,17 @@ import json
 import os
 import urllib.parse
 
-
 # --- 초기 설정 및 데이터 ---
 
 # Streamlit 페이지 설정
 st.set_page_config(
     page_title="MarryRoute by Marry",
     page_icon="💍",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# CSS 스타일 (이전과 동일)
+# CSS 스타일 수정
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
@@ -39,9 +38,6 @@ st.markdown("""
     }
     .stApp {
         background: var(--bg-gradient);
-    }
-    [data-testid="stSidebar"] {
-        display: none;
     }
     .card {
         background-color: rgba(255, 255, 255, 0.9);
@@ -83,10 +79,54 @@ st.markdown("""
     [data-testid="stChatInput"] {
         background-color: rgba(255, 255, 255, 0.7);
     }
+    /* 사이드바 스타일 추가 */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(to bottom, #FFFBF0, #F5F1E8);
+        border-right: 1px solid #e0e0e0;
+        padding: 2rem;
+    }
+    .sidebar-logo {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .sidebar-logo h1 {
+        color: var(--accent-color);
+        font-weight: 900;
+        font-size: 2.5em;
+        margin: 0;
+    }
+    .sidebar-logo p {
+        color: var(--subtext-color);
+        font-size: 0.9em;
+        margin-top: 0;
+    }
+    /* 사이드바 버튼 디자인 개선 */
+    [data-testid="stSidebar"] .stButton > button {
+        background-color: transparent !important;
+        border: none !important;
+        color: var(--text-color) !important;
+        text-align: left;
+        padding: 12px 10px;
+        margin: 5px 0;
+        transition: all 0.2s;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: var(--accent-light-color) !important;
+        color: var(--text-color) !important;
+        border-left: 5px solid var(--accent-color) !important;
+    }
+    [data-testid="stSidebar"] .stButton > button:focus {
+        box-shadow: none !important;
+    }
+    /* 체크리스트 아이템 정렬 */
+    div.st-emotion-cache-121p653 > p {
+        flex-grow: 1;
+        margin: 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# 데이터베이스 연결 초기화 함수
+# 데이터베이스 연결 초기화 함수 (기존과 동일)
 def init_connection():
     try:
         return psycopg2.connect(
@@ -100,10 +140,9 @@ def init_connection():
         st.error(f"데이터베이스 연결 실패: {e}")
         return None
 
-# 데이터베이스에서 업체 정보를 가져오는 함수
-@st.cache_data(ttl=600) # 10분마다 데이터 새로고침
+# 데이터베이스에서 업체 정보를 가져오는 함수 (기존과 동일)
+@st.cache_data(ttl=600)
 def fetch_vendors_from_db():
-    # 각 테이블 이름과 앱에서 사용할 'type' 이름을 짝지어줍니다.
     table_map = {
         'wedding_hall': '웨딩홀',
         'studio': '스튜디오',
@@ -115,7 +154,6 @@ def fetch_vendors_from_db():
     conn = init_connection()
     
     if conn is None:
-        # 데이터베이스 연결 실패시 더미 데이터 반환
         return [
             {
                 'id': 1,
@@ -131,7 +169,6 @@ def fetch_vendors_from_db():
 
     try:
         with conn.cursor() as cur:
-            # table_map의 모든 테이블을 순회하며 데이터를 가져옵니다.
             for table_name, type_name in table_map.items():
                 try:
                     cur.execute(f"SELECT * FROM {table_name};")
@@ -143,16 +180,13 @@ def fetch_vendors_from_db():
                         vendor_dict = dict(zip(columns, row))
                         vendor_dict['type'] = type_name 
                         
-                        # 딕셔너리 키를 일관되게 매핑합니다.
                         if 'conm' in vendor_dict:
-                            # 'conm'을 'name'으로 매핑하고 'id'에도 할당
                             vendor_dict['name'] = vendor_dict.pop('conm')
                             vendor_dict['id'] = vendor_dict['name']
                         
                         if 'min_fee' in vendor_dict:
                             vendor_dict['price'] = vendor_dict.pop('min_fee')
                         
-                        # 임시 데이터 추가
                         vendor_dict['description'] = "간단한 업체 설명입니다."
                         vendor_dict['rating'] = random.uniform(4.0, 5.0)
                         vendor_dict['reviews'] = random.randint(50, 500)
@@ -172,7 +206,7 @@ def fetch_vendors_from_db():
         
     return all_vendors
 
-# --- 기존 데이터 (vendors 제외) ---
+# --- 기존 데이터 ---
 timeline_items = [
     { "id": 1, "title": "예식장 예약", "date": "2025-03-15", "status": "completed", "category": "venue" },
     { "id": 2, "title": "드레스 피팅", "date": "2025-04-20", "status": "upcoming", "category": "dress" },
@@ -185,8 +219,7 @@ budget_categories = [
     { "name": "드레스", "budget": 200, "spent": 150, "color": "#FF6B6B" },
 ]
 
-# --- 유틸리티 함수 (이전과 동일) ---
-
+# --- 유틸리티 함수 (기존과 동일) ---
 def calculate_dday(wedding_date_str):
     today = datetime.now().date()
     wedding_date = datetime.strptime(wedding_date_str, "%Y-%m-%d").date()
@@ -214,17 +247,20 @@ def donut_chart_svg(percentage, color, radius=50, stroke_width=10):
     </div>
     """
 
-# 기존 세션 상태 초기화 부분 수정
+# --- 세션 상태 초기화 ---
 if 'page' not in st.session_state:
-    st.session_state.page = 'home'
-
-# LangGraph 메시지 형식으로 변경
+    st.session_state.page = 'chat'
 if 'messages' not in st.session_state:
-    st.session_state.messages = [
-        AIMessage(content="안녕하세요! AI 웨딩 플래너 마리예요 ✨ 어떤 도움이 필요하신가요?")
-    ]
+    new_intro_message = """
+안녕하세요! 당신의 완벽한 결혼식을 위한 AI 웨딩플래너, **마리**입니다. ✨ 저와 함께 모든 결혼 준비 과정을 쉽고 즐겁게 만들어가요.
 
-# 사용자 메모리 초기화
+저희 메리루트 서비스는 별도의 개인정보 없이도 바로 이용할 수 있어요. 혹시 이름, 예식 희망일, 예산 범위 등 기본적인 정보를 알려주시면 더 자세하고 맞춤화된 플래닝을 도와드릴 수 있어요. 물론, 지금 당장 궁금한 점이 있다면 채팅으로 자유롭게 물어봐 주세요!
+
+더욱 정확한 맞춤형 정보를 원하시면 아래 옵션 중 한 가지를 선택해 주세요.
+"""
+    st.session_state.messages = [
+        AIMessage(content=new_intro_message)
+    ]
 if 'user_memo' not in st.session_state:
     st.session_state.user_memo = {
         "budget": "",
@@ -232,15 +268,71 @@ if 'user_memo' not in st.session_state:
         "wedding_date": "",
         "style": "",
         "confirmed_vendors": {},
-        "notes": []
+        "notes": "" # 메모를 하나의 문자열로 저장하도록 변경
     }
-
 if 'checklist_items' not in st.session_state:
-    st.session_state.checklist_items = {
-        "청첩장 시안 확인": False,
-        "하객 명단 정리 시작": True,
-        "스튜디오 촬영 컨셉 확정": False,
-    }
+    # 체크리스트를 딕셔너리에서 리스트로 변경
+    st.session_state.checklist_items = [
+        {"item": "청첩장 시안 확인", "checked": False},
+        {"item": "하객 명단 정리 시작", "checked": True},
+        {"item": "스튜디오 촬영 컨셉 확정", "checked": False},
+    ]
+if 'liked_vendors' not in st.session_state:
+    st.session_state.liked_vendors = []
+
+# --- 사이드바 내비게이션 함수 ---
+def create_sidebar():
+    with st.sidebar:
+        st.markdown('<div class="sidebar-logo"><h1>💍 MarryRoute</h1><p>AI 웨딩 플래너</p></div>', unsafe_allow_html=True)
+        st.markdown("---")
+        
+        # 페이지 이동 버튼 순서
+        nav_buttons = {
+            "💬 마리": 'chat', # 가장 위로 이동
+            "🏠 홈": 'home',
+            "🔍 찾기": 'search',
+            "🗓️ 타임라인": 'timeline',
+            "💰 예산": 'budget',
+            "❤️ 찜": 'liked',
+        }
+        for label, page_id in nav_buttons.items():
+            if st.button(label, key=f"nav_{page_id}_sidebar"):
+                st.session_state.page = page_id
+                st.rerun()
+
+        st.markdown("---")
+        
+        # 사용자 메모 및 D-day 위젯
+        d_day = calculate_dday('2025-07-15')
+        st.info(f"결혼식까지 **D-{d_day}**일 남았어요!")
+        st.markdown("### 📝 나의 메모")
+        # 메모를 텍스트 에리어에 바로 저장
+        st.session_state.user_memo["notes"] = st.text_area(
+            "중요한 내용을 기록해두세요.", 
+            value=st.session_state.user_memo["notes"], 
+            height=150, 
+            key="user_memo_area"
+        )
+        st.markdown("---")
+        
+        # 체크리스트 기능
+        st.markdown("### ✅ 결혼 준비 체크리스트")
+        for i, item in enumerate(st.session_state.checklist_items):
+            cols = st.columns([0.8, 0.1, 0.1])
+            with cols[0]:
+                checked = st.checkbox(item["item"], value=item["checked"], key=f"check_{i}")
+                st.session_state.checklist_items[i]["checked"] = checked
+            with cols[1]:
+                if st.button("✖️", key=f"delete_check_{i}"):
+                    st.session_state.checklist_items.pop(i)
+                    st.rerun()
+        
+        new_item = st.text_input("새 항목 추가", key="new_checklist_item")
+        if new_item:
+            if st.button("추가"):
+                st.session_state.checklist_items.append({"item": new_item, "checked": False})
+                st.session_state.new_checklist_item = ""  # 입력창 비우기
+                st.rerun()
 
 
 # --- 페이지 렌더링 함수 ---
@@ -283,7 +375,6 @@ def render_home():
     with st.container():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### ✨ AI 추천 업체")
-        # 홈 화면에는 최대 3개까지만 보여줍니다.
         for vendor in all_vendors[:3]: 
             col1, col2 = st.columns([1, 4])
             with col1:
@@ -295,21 +386,12 @@ def render_home():
             st.markdown("---")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("### ✅ 진행 중인 체크리스트")
-        for item, checked in st.session_state.checklist_items.items():
-            new_checked = st.checkbox(item, value=checked, key=f"check_{item}")
-            st.session_state.checklist_items[item] = new_checked
-        st.markdown('</div>', unsafe_allow_html=True)
-
 
 def render_search():
     st.markdown("<h2 style='text-align: center; color: var(--text-color);'>🔍 AI 추천 업체 찾기</h2>", unsafe_allow_html=True)
     
     all_vendors = fetch_vendors_from_db()
     
-    # 카테고리 순서 변경
     categories_order = ['전체', '웨딩홀', '스튜디오', '드레스', '메이크업']
     db_categories = sorted(list(set(v['type'] for v in all_vendors)))
     ordered_categories = [c for c in categories_order if c in ['전체'] + db_categories]
@@ -323,7 +405,6 @@ def render_search():
     if selected_category != '전체':
         filtered = [v for v in filtered if v['type'] == selected_category]
     if search_query:
-        # 업체명과 subway 컬럼을 함께 검색하도록 수정
         filtered = [v for v in filtered if (
             search_query.lower() in v['name'].lower() or 
             (v.get('subway') and search_query.lower() in v['subway'].lower())
@@ -332,7 +413,12 @@ def render_search():
     if not filtered:
         st.info("조건에 맞는 업체 정보가 없습니다.")
     
-    # enumerate를 사용하여 고유한 인덱스를 가져옴
+    # 찜하기 버튼 클릭 시 호출될 함수
+    def handle_like_button(vendor_info):
+        if vendor_info not in st.session_state.liked_vendors:
+            st.session_state.liked_vendors.append(vendor_info)
+            st.toast(f"❤️ {vendor_info['name']}이(가) 찜 목록에 추가되었습니다!")
+
     for i, vendor in enumerate(filtered):
         with st.container():
             st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -342,19 +428,45 @@ def render_search():
             st.markdown("---")
             st.markdown("#### 상세 정보")
             
-            excluded_keys = ['id', 'type', 'name', 'description', 'image', 'rating', 'reviews', 'price']
+            # 정보 딕셔너리 및 한글 변환 매핑
+            info_to_display = {
+                'rating': ('⭐ 평점', '리뷰'),
+                'price': ('💰 가격', None),
+                'subway': ('🚇 지하철', None),
+                'bus': ('🚌 버스', None),
+                'tel': ('📞 전화', None),
+                'address': ('📍 주소', None),
+                'meal_price_per_person': ('🍽️ 식대', '원'),
+                'min_guarantee': ('👥 최소 보증 인원', '명'),
+                'parking_space': ('🚗 주차 공간', '대'),
+                'rental_fee': ('💵 대관료', '원'),
+                'peak_season_fee': ('🌸 성수기 대관료', '원'),
+                'off_peak_season_fee': ('🍂 비수기 대관료', '원'),
+                'peak': ('최성수기', ' (피크)'),
+                'off_peak': ('비성수기', ' (피크)'),
+            }
             
+            # 업체 상세 정보 테이블로 표시
             cols = st.columns(2)
             item_count = 0
-
-            for key, value in vendor.items():
-                if key not in excluded_keys:
-                    if key not in ['conm', 'min_fee']:
-                        formatted_key = key.replace('_', ' ').capitalize()
-                        
-                        with cols[item_count % 2]:
-                            st.markdown(f"**{formatted_key}:** {value}")
-                        item_count += 1
+            for key, (label, unit) in info_to_display.items():
+                if key in vendor and vendor[key] is not None:
+                    value = vendor[key]
+                    if key in ['peak', 'off_peak']:
+                        value = 'O' if value else 'X'
+                        formatted_value = f"{label} {value}"
+                    elif key in ['peak_season_fee', 'off_peak_season_fee', 'meal_price_per_person', 'min_guarantee', 'parking_space', 'rental_fee']:
+                        formatted_value = f"{value:,d}{unit}" if isinstance(value, int) else f"{value}{unit}"
+                    elif key == 'rating':
+                        formatted_value = f"{value} ({vendor['reviews']}{unit[1]})"
+                    elif key == 'price':
+                         formatted_value = value
+                    else:
+                        formatted_value = value
+                    
+                    with cols[item_count % 2]:
+                        st.markdown(f"**{label}:** {formatted_value}")
+                    item_count += 1
             
             st.markdown("---")
             col1, col2 = st.columns(2)
@@ -364,11 +476,10 @@ def render_search():
                 st.markdown(f'<a href="{naver_url}" target="_blank"><button style="width: 100%; border-radius: 12px; font-weight: 600; padding: 12px 0;">상세보기</button></a>', unsafe_allow_html=True)
             with col2:
                 # key에 인덱스(i)를 추가하여 고유하게 만듦
-                st.button("🤍 찜하기", key=f"like_{i}_{vendor.get('id', vendor['name'])}")
+                st.button("🤍 찜하기", key=f"like_{i}_{vendor.get('id', vendor['name'])}", on_click=handle_like_button, args=(vendor,))
             st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ... render_timeline, render_budget, render_chat 함수 및 하단 내비게이션은 이전과 동일 ...
 def render_timeline():
     st.markdown("<h2 style='text-align: center; color: var(--text-color);'>🗓️ 결혼 준비 타임라인</h2>", unsafe_allow_html=True)
     for item in sorted(timeline_items, key=lambda x: x['date']):
@@ -406,30 +517,62 @@ def render_budget():
             st.progress(cat['spent'] / cat['budget'])
         st.markdown('</div>', unsafe_allow_html=True)
 
+
 def render_chat():
     st.markdown("<h2 style='text-align: center; color: var(--text-color);'>💬 AI 플래너 마리</h2>", unsafe_allow_html=True)
     
-    # 채팅 메시지 표시 (LangGraph 메시지 형식)
-    for msg in st.session_state.messages:
+    # 첫 번째 메시지에 대한 버튼 옵션 정의
+    button_options = {
+        "📋 개인 정보 입력": "개인 정보(이름, 예식일, 예산 등)를 입력하고 싶어요.",
+        "🏃‍♀️ 준비 시간이 부족하고 너무 바빠요": "시간을 절약할 수 있는 효율적인 준비 방법을 추천해 주세요.",
+        "✨ 개성 있고 특별한 웨딩을 원해요": "트렌디하고 개성 있는 컨셉과 업체를 추천해 주세요.",
+        "💡 합리적이고 계획적인 소비가 목표예요": "가성비 좋은 웨딩홀과 업체를 찾고 예산 관리를 도와주세요.",
+        "😎 다 귀찮고 알잘딱깔센": "알아서 척척! 마리가 모든 것을 추천하고 계획해 주세요."
+    }
+    
+    # 버튼 클릭 시 실행될 콜백 함수 정의 (st.rerun() 제거)
+    def handle_intro_button_click(prompt_content):
+        # 1. 버튼 내용을 HumanMessage로 추가
+        st.session_state.messages.append(HumanMessage(content=prompt_content))
+        # 2. Streamlit이 상태 변경을 감지하고 자동으로 재실행합니다.
+
+    # 1. 메시지 렌더링 및 버튼 표시
+    for i, msg in enumerate(st.session_state.messages):
         role = "assistant" if isinstance(msg, AIMessage) else "user"
         with st.chat_message(role):
             st.write(msg.content)
-    
-    # 사용자 입력 처리
+            
+            # 첫 번째 AIMessage (인트로 메시지) 바로 아래에만 버튼을 표시합니다.
+            if i == 0 and role == "assistant":
+                
+                col1, col2, col3 = st.columns([1, 1, 1])
+                cols = [col1, col2, col3, col1, col2] # 5개의 버튼을 3열로 배치
+
+                st.markdown("어떤 방식으로 시작해볼까요?") 
+                
+                for j, (btn_label, prompt_content) in enumerate(button_options.items()):
+                    with cols[j]:
+                        # on_click 인자를 사용하여 콜백 함수와 인자를 명시적으로 연결
+                        st.button(
+                            btn_label, 
+                            key=f"chat_intro_btn_{j}",
+                            on_click=handle_intro_button_click,
+                            args=(prompt_content,)
+                        )
+                        
+
+    # 2. 일반 채팅 입력 처리: 입력 시 메시지를 추가하고 RERUN하여 AI 호출을 트리거
     if prompt := st.chat_input("마리에게 물어보세요..."):
-        # 사용자 메시지 추가
-        user_message = HumanMessage(content=prompt)
-        st.session_state.messages.append(user_message)
+        st.session_state.messages.append(HumanMessage(content=prompt))
+        st.rerun() # 즉시 재실행하여 아래 AI 호출 블록을 실행하도록 유도
+
+    # 3. 통합 AI 호출 로직: 새로운 사용자 메시지(HumanMessage)가 있으면 AI 호출
+    # 버튼 클릭으로 재실행되었거나, 채팅 입력 후 재실행되었을 때 모두 이 블록을 통해 AI 응답을 생성합니다.
+    if st.session_state.messages and isinstance(st.session_state.messages[-1], HumanMessage):
         
-        # 사용자 메시지 즉시 표시
-        with st.chat_message("user"):
-            st.write(prompt)
-        
-        # AI 응답 생성
         with st.chat_message("assistant"):
             with st.spinner("마리가 생각 중이에요..."):
                 try:
-                    # LangGraph 상태 생성
                     initial_state = State(
                         messages=st.session_state.messages,
                         memo=st.session_state.user_memo,
@@ -438,15 +581,12 @@ def render_chat():
                         tool_results={}
                     )
                     
-                    # LangGraph 실행
                     result = langgraph_app.invoke(initial_state)
                     
-                    # 응답 메시지 추출 (마지막 메시지가 AI 응답)
                     if result["messages"]:
                         ai_response = result["messages"][-1]
                         st.write(ai_response.content)
                         
-                        # 세션 상태 업데이트
                         st.session_state.messages = result["messages"]
                         st.session_state.user_memo.update(result["memo"])
                     else:
@@ -458,18 +598,31 @@ def render_chat():
                     error_msg = f"오류가 발생했습니다: {str(e)}"
                     st.error(error_msg)
                     st.session_state.messages.append(AIMessage(content="죄송해요, 일시적인 문제가 발생했습니다. 다시 시도해주세요."))
+                    
 
-# --- 하단 내비게이션 및 페이지 라우팅 ---
-st.markdown("""<div style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border-top: 1px solid #eee; padding: 10px 0; z-index: 99;"></div>""", unsafe_allow_html=True)
-nav_cols = st.columns(5)
-nav_items = {"마리": ("chat", "💬"), "찾기": ("search", "🔍"), "홈": ("home", "🏠"), "일정": ("timeline", "🗓️"), "예산": ("budget", "💰")}
-for i, (label, (page_id, icon)) in enumerate(nav_items.items()):
-    with nav_cols[i]:
-        if st.button(f"{icon} {label}", key=f"nav_{page_id}"):
-            st.session_state.page = page_id
-            st.rerun()
+def render_liked_vendors():
+    st.markdown("<h2 style='text-align: center; color: var(--text-color);'>❤️ 찜한 업체 목록</h2>", unsafe_allow_html=True)
+    if not st.session_state.liked_vendors:
+        st.info("찜한 업체가 아직 없어요. '업체 찾기'에서 마음에 드는 업체를 찜해보세요!")
+        return
 
-# 현재 페이지 렌더링
+    for i, vendor in enumerate(st.session_state.liked_vendors):
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown(f"<h3>{vendor.get('image', '🏢')} {vendor['name']}</h3>", unsafe_allow_html=True)
+            st.markdown(f"**{vendor['type']}** | <span style='color: var(--subtext-color);'>{vendor['description']}</span>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown(f"**별점:** {vendor.get('rating', 'N/A')} ({vendor.get('reviews', 0)} 리뷰) | **가격:** {vendor.get('price', '문의')}")
+            
+            if st.button("💔 찜 취소", key=f"unlike_{i}_{vendor['name']}"):
+                st.session_state.liked_vendors.pop(i)
+                st.toast(f"💔 {vendor['name']}이(가) 찜 목록에서 삭제되었습니다.")
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# --- 메인 함수 및 페이지 라우팅 ---
+create_sidebar()
+
 if st.session_state.page == 'home':
     render_home()
 elif st.session_state.page == 'search':
@@ -480,3 +633,5 @@ elif st.session_state.page == 'budget':
     render_budget()
 elif st.session_state.page == 'chat':
     render_chat()
+elif st.session_state.page == 'liked':
+    render_liked_vendors()
