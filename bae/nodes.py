@@ -5,6 +5,7 @@ from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 from state import State
+from tools import execute_tools
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,55 +17,113 @@ llm = ChatOpenAI(
     api_key=os.getenv('OPENAI_API_KEY')
 )
 
-def parsing_node(state: State) -> Dict[str, Any]:
-    """사용자 메시지의 의도를 파싱하여 intent 설정"""
+def parsing_node(state) -> Dict[str, Any]:
+    """사용자 메시지의 의도를 파싱하고 필요한 툴 판단"""
     
-    # 최근 메시지 가져오기
     last_message = state["messages"][-1].content if state["messages"] else ""
+    memo = state.get("memo", {})
     
-    # LLM을 사용한 의도 분류
     prompt = f"""
-    다음 메시지가 웨딩 관련 질문인지 일반 대화인지 분류해주세요.
-    
-    메시지: {last_message}
-    
-    웨딩 관련이면 "wedding", 일반 대화면 "general"로만 답변해주세요.
-    """
-    
-    response = llm.invoke([HumanMessage(content=prompt)])
-    intent = response.content.strip().lower()
-    
-    # intent 정규화
-    if "wedding" in intent:
-        intent = "wedding"
-    else:
-        intent = "general"
-    
-    return {
-        "intent": intent,
-        "tools_needed": [],  # 초기화
-        "tool_results": {}
-    }
+메시지: {last_message}
+현재 메모: {json.dumps(memo, ensure_ascii=False)}
 
+다음을 판단해주세요:
+
+1. 의도: wedding(결혼 준비 관련) 또는 general(일반 대화)
+
+웨딩 관련 키워드들:
+- 업체: 웨딩홀, 스튜디오(웨딩 촬영), 드레스, 메이크업, 플로리스트, 케이크, 한복
+- 장소: 압구정, 강남, 홍대 등 + "스튜디오/웨딩홀" 조합
+- 행동: 추천, 찾기, 예약, 견적, 비교
+- 예산: 가격, 비용, 예산, 계산
+- 기타: 결혼, 웨딩, 신부, 신랑, 하객
+
+2. 웨딩 관련인 경우 필요한 툴들:
+   - db_query: 웨딩홀, 스튜디오, 드레스, 메이크업 업체 검색이 필요한 경우
+   - calculator: 예산 계산, 비용 분배, 하객수 계산 등이 필요한 경우  
+   - web_search: 최신 웨딩 트렌드, 리뷰, 팁 등 웹에서 정보를 찾아야 하는 경우
+   - memo_update: 사용자 정보를 메모에 저장해야 하는 경우 (예산, 날짜, 선호도 등)
+
+예시:
+"압구정 스튜디오 추천" → wedding,db_query
+"5000만원 예산 분배" → wedding,calculator,memo_update  
+"웨딩 트렌드 알려줘" → wedding,web_search
+"안녕하세요" → general,
+
+답변 형식:
+wedding,db_query (업체 검색만 필요)
+wedding,calculator,memo_update (계산 + 메모 저장)
+wedding,web_search (웹 검색만 필요)
+wedding, (툴 불필요, 단순 질문)
+general, (일반 대화)
+
+답변:
+"""
+    
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        parts = response.content.strip().split(',')
+        
+        intent = "wedding" if "wedding" in parts[0].lower() else "general"
+        
+        # 툴들 추출 (여러 개 가능)
+        tools_needed = []
+        if len(parts) > 1:
+            for i in range(1, len(parts)):
+                tool = parts[i].strip()
+                if tool and tool in ["db_query", "calculator", "web_search", "memo_update"]:
+                    tools_needed.append(tool)
+        
+        print(f"[DEBUG] Intent: {intent}, Tools: {tools_needed}")
+        
+        return {
+            "intent": intent,
+            "tools_needed": tools_needed,
+            "tool_results": {}
+        }
+        
+    except Exception as e:
+        print(f"Intent parsing 오류: {e}")
+        return {
+            "intent": "general",
+            "tools_needed": [],
+            "tool_results": {}
+        }
+    
 def tool_execution_node(state: State) -> Dict[str, Any]:
-    """필요한 툴들을 순차적으로 실행"""
+    """필요한 툴들을 실행하고 결과 저장"""
     
-    from tools import execute_tools
+    tools_needed = state.get("tools_needed", [])
     
-    # 사용자의 최근 메시지 가져오기
+    # 툴이 없으면 빈 결과 반환
+    if not tools_needed:
+        return {"tool_results": {}}
+    
+    # 현재 사용자 입력과 메모
     last_message = state["messages"][-1].content if state["messages"] else ""
+    memo = state.get("memo", {})
     
-    # 실제 툴 실행
-    tool_results = execute_tools(
-        tools_needed=state["tools_needed"],
-        user_message=last_message,
-        user_memo=state["memo"]
-    )
+    try:
+        # tools.py의 execute_tools 함수 사용
+        tool_results = execute_tools(
+            tools_needed=tools_needed,
+            user_message=last_message,
+            user_memo=memo
+        )
+        
+        return {"tool_results": tool_results}
+        
+    except Exception as e:
+        print(f"Tool execution 오류: {e}")
+        # 에러 시 각 툴별로 에러 결과 생성
+        error_results = {}
+        for tool_name in tools_needed:
+            error_results[tool_name] = {
+                "status": "error",
+                "error": str(e)
+            }
+        return {"tool_results": error_results}
     
-    return {
-        "tool_results": tool_results
-    }
-
 def memo_update_node(state: State) -> Dict[str, Any]:
     """사용자 메모리 JSON 파일 업데이트"""
     
@@ -74,7 +133,12 @@ def memo_update_node(state: State) -> Dict[str, Any]:
     # memories 디렉토리 생성
     os.makedirs("./memories", exist_ok=True)
     
-    current_memo = state["memo"].copy()
+    # 안전하게 memo 가져오기
+    current_memo = state.get("memo", {})
+    if current_memo:
+        current_memo = current_memo.copy()
+    else:
+        current_memo = {}
     
     try:
         # 기존 메모리 로드
@@ -111,6 +175,7 @@ def memo_update_node(state: State) -> Dict[str, Any]:
         if updated:
             with open(memo_path, 'w', encoding='utf-8') as f:
                 json.dump(existing_memo, f, ensure_ascii=False, indent=2)
+            print(f"[DEBUG] 메모 업데이트 완료: {updated}")
         
         return {
             "memo": existing_memo
@@ -118,10 +183,19 @@ def memo_update_node(state: State) -> Dict[str, Any]:
         
     except Exception as e:
         print(f"메모 업데이트 중 오류: {e}")
-        return {
-            "memo": current_memo
+        # 에러 시에도 기본 구조 반환
+        default_memo = {
+            "budget": "",
+            "preferred_location": "",
+            "wedding_date": "",
+            "style": "",
+            "confirmed_vendors": {},
+            "notes": []
         }
-
+        return {
+            "memo": current_memo if current_memo else default_memo
+        }
+    
 def response_generation_node(state: State) -> Dict[str, Any]:
     """툴 실행 결과를 바탕으로 최종 응답 생성"""
     
