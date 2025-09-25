@@ -1,0 +1,36 @@
+{
+  "budget": "500만원",
+  "preferred_location": "",
+  "wedding_date": "2023-12-26",
+  "style": "",
+  "confirmed_vendors": {
+    "studio": "200만원",
+    "makeup": "150만원"
+  },
+  "notes": [
+    {
+      "timestamp": "2025-09-25T14:27:13.709073",
+      "update": "budget updated to: 3000만원"
+    },
+    {
+      "timestamp": "2025-09-25T14:30:44.861095",
+      "update": "budget updated to: 400만원"
+    },
+    {
+      "timestamp": "2025-09-25T14:30:44.861095",
+      "update": "confirmed_vendors updated to: {'studio': '200만원', 'makeup': '150만원'}"
+    },
+    {
+      "timestamp": "2025-09-25T14:49:21.579805",
+      "update": "budget updated to: 500만원"
+    },
+    {
+      "timestamp": "2025-09-25T16:10:11.273127",
+      "update": "wedding_date updated to: 2024-12-26"
+    },
+    {
+      "timestamp": "2025-09-25T16:20:29.856039",
+      "update": "wedding_date updated to: 2023-12-26"
+    }
+  ]
+}
