@@ -190,16 +190,24 @@ def calculator_tool(calculation_request: str, context_data: Dict[str, Any] = Non
         }
 
 @tool  
-def memo_update_tool(update_data: Dict[str, Any]) -> Dict[str, Any]:
+def memo_update_tool(update_data: str) -> Dict[str, Any]:
     """
-    메모 업데이트 툴 (원래 user_db_update_tool을 메모 관리용으로 변경)
+    메모 업데이트 툴 (문자열 입력으로 변경)
     """
     try:
-        # 메모 업데이트 로직 (실제로는 memo_update_node에서 처리)
+        # 문자열을 딕셔너리로 변환 시도
+        if isinstance(update_data, str):
+            try:
+                data = json.loads(update_data)
+            except:
+                data = {"raw_input": update_data}
+        else:
+            data = update_data
+            
         return {
             "status": "success",
             "message": "메모 업데이트가 완료되었습니다.",
-            "updated_data": update_data
+            "updated_data": data
         }
         
     except Exception as e:
