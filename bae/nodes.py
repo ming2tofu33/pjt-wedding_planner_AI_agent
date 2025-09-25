@@ -93,7 +93,49 @@ general, (일반 대화)
             "tools_needed": [],
             "tool_results": {}
         }
+
+def memo_check_node(state: State) -> Dict[str, Any]:
+    """기존 메모리를 로드하고 상태에 저장 (기존 상태 보존)"""
+    user_id = os.getenv('DEFAULT_USER_ID', 'mvp-test-user')
+    memo_path = f"./memories/{user_id}.json"
     
+    # memories 디렉토리 생성
+    os.makedirs("./memories", exist_ok=True)
+    
+    # 기존 메모 로드
+    try:
+        if os.path.exists(memo_path):
+            with open(memo_path, 'r', encoding='utf-8') as f:
+                existing_memo = json.load(f)
+            print(f"[DEBUG] 메모리 로드 성공: {existing_memo}")
+        else:
+            # 기본 메모 구조 생성
+            existing_memo = {
+                "budget": "",
+                "preferred_location": "",
+                "wedding_date": "",
+                "style": "",
+                "confirmed_vendors": {},
+                "notes": []
+            }
+            print(f"[DEBUG] 새로운 메모리 생성")
+    except Exception as e:
+        print(f"메모리 로드 중 오류: {e}")
+        existing_memo = {
+            "budget": "",
+            "preferred_location": "",
+            "wedding_date": "",
+            "style": "",
+            "confirmed_vendors": {},
+            "notes": []
+        }
+    
+    # 기존 상태를 보존하면서 메모만 추가
+    return {
+        "memo": existing_memo
+        # intent, tools_needed, tool_results는 그대로 유지됨
+    }
+
 def tool_execution_node(state: State) -> Dict[str, Any]:
     """필요한 툴들을 실행하고 결과 저장"""
     
@@ -263,16 +305,42 @@ def response_generation_node(state: State) -> Dict[str, Any]:
     }
 
 def general_response_node(state: State) -> Dict[str, Any]:
-    """일반적인 대화 응답 생성"""
+    """메모리 정보를 활용한 일반적인 대화 응답 생성"""
     
     last_message = state["messages"][-1].content
+    memo = state.get("memo", {})
+    
+    # 메모리 정보를 텍스트로 정리
+    memo_context = ""
+    if memo:
+        context_parts = []
+        if memo.get("budget"):
+            context_parts.append(f"예산: {memo['budget']}")
+        if memo.get("preferred_location"):
+            context_parts.append(f"선호 지역: {memo['preferred_location']}")
+        if memo.get("wedding_date"):
+            context_parts.append(f"결혼 날짜: {memo['wedding_date']}")
+        if memo.get("style"):
+            context_parts.append(f"선호 스타일: {memo['style']}")
+        if memo.get("confirmed_vendors"):
+            vendors = list(memo['confirmed_vendors'].keys())
+            if vendors:
+                context_parts.append(f"확정된 업체: {', '.join(vendors)}")
+        
+        if context_parts:
+            memo_context = f"\n\n사용자 정보: {', '.join(context_parts)}"
     
     prompt = f"""
-    사용자와 자연스러운 대화를 나눠주세요. 웨딩 플래너 챗봇이지만 일반적인 질문에도 친근하게 답변해주세요.
+    사용자와 자연스러운 대화를 나눠주세요. 
+    웨딩 플래너 챗봇 '마리'로서 친근하고 도움이 되는 답변을 해주세요.
     
     사용자 메시지: {last_message}
+    {memo_context}
     
-    간단하고 자연스러운 답변을 해주세요.
+    위의 사용자 정보가 있다면 이를 자연스럽게 활용해서 개인화된 답변을 해주세요.
+    예를 들어, 예산이나 지역 정보가 있다면 그에 맞는 조언을 포함할 수 있습니다.
+    
+    친근하고 자연스러운 답변을 해주세요.
     """
     
     response = llm.invoke([HumanMessage(content=prompt)])

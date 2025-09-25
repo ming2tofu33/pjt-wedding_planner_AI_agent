@@ -2,6 +2,7 @@ from langgraph.graph import START, END, StateGraph
 from state import State
 from nodes import (
     parsing_node,
+    memo_check_node,
     tool_execution_node,
     memo_update_node,
     response_generation_node,
@@ -15,6 +16,7 @@ builder = StateGraph(State)
 
 # 노드 추가
 builder.add_node("parsing_node", parsing_node)
+builder.add_node("memo_check_node", memo_check_node)    
 builder.add_node("tool_execution_node", tool_execution_node)
 builder.add_node("memo_update_node", memo_update_node)
 builder.add_node("response_generation_node", response_generation_node)
@@ -22,10 +24,10 @@ builder.add_node("general_response_node", general_response_node)
 
 # 시작점 연결
 builder.add_edge(START, "parsing_node")
+builder.add_edge("parsing_node", "memo_check_node")
 
-# parsing_node에서 conditional_router로 분기
 builder.add_conditional_edges(
-    "parsing_node",
+    "memo_check_node",  
     conditional_router,
     {
         "tool_execution": "tool_execution_node",
