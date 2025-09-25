@@ -249,10 +249,17 @@ def donut_chart_svg(percentage, color, radius=50, stroke_width=10):
 
 # --- 세션 상태 초기화 ---
 if 'page' not in st.session_state:
-    st.session_state.page = 'home'
+    st.session_state.page = 'chat'
 if 'messages' not in st.session_state:
+    new_intro_message = """
+안녕하세요! 당신의 완벽한 결혼식을 위한 AI 웨딩플래너, **마리**입니다. ✨ 저와 함께 모든 결혼 준비 과정을 쉽고 즐겁게 만들어가요.
+
+저희 메리루트 서비스는 별도의 개인정보 없이도 바로 이용할 수 있어요. 혹시 이름, 예식 희망일, 예산 범위 등 기본적인 정보를 알려주시면 더 자세하고 맞춤화된 플래닝을 도와드릴 수 있어요. 물론, 지금 당장 궁금한 점이 있다면 채팅으로 자유롭게 물어봐 주세요!
+
+더욱 정확한 맞춤형 정보를 원하시면 아래 옵션 중 한 가지를 선택해 주세요.
+"""
     st.session_state.messages = [
-        AIMessage(content="안녕하세요! AI 웨딩 플래너 마리예요 ✨ 어떤 도움이 필요하신가요?")
+        AIMessage(content=new_intro_message)
     ]
 if 'user_memo' not in st.session_state:
     st.session_state.user_memo = {
@@ -279,14 +286,14 @@ def create_sidebar():
         st.markdown('<div class="sidebar-logo"><h1>💍 MarryRoute</h1><p>AI 웨딩 플래너</p></div>', unsafe_allow_html=True)
         st.markdown("---")
         
-        # 페이지 이동 버튼
+        # 페이지 이동 버튼 순서
         nav_buttons = {
+            "💬 마리": 'chat', # 가장 위로 이동
             "🏠 홈": 'home',
-            "💬 AI 플래너 마리": 'chat',
-            "🔍 업체 찾기": 'search',
+            "🔍 찾기": 'search',
             "🗓️ 타임라인": 'timeline',
-            "💰 예산 관리": 'budget',
-            "❤️ 찜한 업체": 'liked',
+            "💰 예산": 'budget',
+            "❤️ 찜": 'liked',
         }
         for label, page_id in nav_buttons.items():
             if st.button(label, key=f"nav_{page_id}_sidebar"):
@@ -510,20 +517,58 @@ def render_budget():
             st.progress(cat['spent'] / cat['budget'])
         st.markdown('</div>', unsafe_allow_html=True)
 
+
 def render_chat():
     st.markdown("<h2 style='text-align: center; color: var(--text-color);'>💬 AI 플래너 마리</h2>", unsafe_allow_html=True)
     
-    for msg in st.session_state.messages:
+    # 첫 번째 메시지에 대한 버튼 옵션 정의
+    button_options = {
+        "📋 개인 정보 입력": "개인 정보(이름, 예식일, 예산 등)를 입력하고 싶어요.",
+        "🏃‍♀️ 준비 시간이 부족하고 너무 바빠요": "시간을 절약할 수 있는 효율적인 준비 방법을 추천해 주세요.",
+        "✨ 개성 있고 특별한 웨딩을 원해요": "트렌디하고 개성 있는 컨셉과 업체를 추천해 주세요.",
+        "💡 합리적이고 계획적인 소비가 목표예요": "가성비 좋은 웨딩홀과 업체를 찾고 예산 관리를 도와주세요.",
+        "😎 다 귀찮고 알잘딱깔센": "알아서 척척! 마리가 모든 것을 추천하고 계획해 주세요."
+    }
+    
+    # 버튼 클릭 시 실행될 콜백 함수 정의 (st.rerun() 제거)
+    def handle_intro_button_click(prompt_content):
+        # 1. 버튼 내용을 HumanMessage로 추가
+        st.session_state.messages.append(HumanMessage(content=prompt_content))
+        # 2. Streamlit이 상태 변경을 감지하고 자동으로 재실행합니다.
+
+    # 1. 메시지 렌더링 및 버튼 표시
+    for i, msg in enumerate(st.session_state.messages):
         role = "assistant" if isinstance(msg, AIMessage) else "user"
         with st.chat_message(role):
             st.write(msg.content)
-    
+            
+            # 첫 번째 AIMessage (인트로 메시지) 바로 아래에만 버튼을 표시합니다.
+            if i == 0 and role == "assistant":
+                
+                col1, col2, col3 = st.columns([1, 1, 1])
+                cols = [col1, col2, col3, col1, col2] # 5개의 버튼을 3열로 배치
+
+                st.markdown("어떤 방식으로 시작해볼까요?") 
+                
+                for j, (btn_label, prompt_content) in enumerate(button_options.items()):
+                    with cols[j]:
+                        # on_click 인자를 사용하여 콜백 함수와 인자를 명시적으로 연결
+                        st.button(
+                            btn_label, 
+                            key=f"chat_intro_btn_{j}",
+                            on_click=handle_intro_button_click,
+                            args=(prompt_content,)
+                        )
+                        
+
+    # 2. 일반 채팅 입력 처리: 입력 시 메시지를 추가하고 RERUN하여 AI 호출을 트리거
     if prompt := st.chat_input("마리에게 물어보세요..."):
-        user_message = HumanMessage(content=prompt)
-        st.session_state.messages.append(user_message)
-        
-        with st.chat_message("user"):
-            st.write(prompt)
+        st.session_state.messages.append(HumanMessage(content=prompt))
+        st.rerun() # 즉시 재실행하여 아래 AI 호출 블록을 실행하도록 유도
+
+    # 3. 통합 AI 호출 로직: 새로운 사용자 메시지(HumanMessage)가 있으면 AI 호출
+    # 버튼 클릭으로 재실행되었거나, 채팅 입력 후 재실행되었을 때 모두 이 블록을 통해 AI 응답을 생성합니다.
+    if st.session_state.messages and isinstance(st.session_state.messages[-1], HumanMessage):
         
         with st.chat_message("assistant"):
             with st.spinner("마리가 생각 중이에요..."):
@@ -553,6 +598,7 @@ def render_chat():
                     error_msg = f"오류가 발생했습니다: {str(e)}"
                     st.error(error_msg)
                     st.session_state.messages.append(AIMessage(content="죄송해요, 일시적인 문제가 발생했습니다. 다시 시도해주세요."))
+                    
 
 def render_liked_vendors():
     st.markdown("<h2 style='text-align: center; color: var(--text-color);'>❤️ 찜한 업체 목록</h2>", unsafe_allow_html=True)
