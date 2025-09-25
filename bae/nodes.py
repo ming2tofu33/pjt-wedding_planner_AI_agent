@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# OpenAI 모델 초기화
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0.1,
@@ -19,7 +18,6 @@ llm = ChatOpenAI(
 
 def parsing_node(state) -> Dict[str, Any]:
     """사용자 메시지의 의도를 파싱하고 필요한 툴 판단"""
-    
     last_message = state["messages"][-1].content if state["messages"] else ""
     memo = state.get("memo", {})
     
@@ -41,19 +39,25 @@ def parsing_node(state) -> Dict[str, Any]:
 2. 웨딩 관련인 경우 필요한 툴들:
    - db_query: 웨딩홀, 스튜디오, 드레스, 메이크업 업체 검색이 필요한 경우
    - calculator: 예산 계산, 비용 분배, 하객수 계산 등이 필요한 경우  
-   - web_search: 최신 웨딩 트렌드, 리뷰, 팁 등 웹에서 정보를 찾아야 하는 경우
+   - web_search: 다음 경우에 사용
+     * 명시적 검색 요청: "검색", "웹서치", "찾아봐", "알아봐" 등
+     * 특정 업체명 언급: "글렌하우스", "더채플", "스튜디오노바" 등 고유명사
+     * 최신 정보: "트렌드", "후기", "리뷰", "최근", "요즘" 등
+     * 웹에서만 얻을 수 있는 정보: 연락처, 위치, 영업시간 등
    - memo_update: 사용자 정보를 메모에 저장해야 하는 경우 (예산, 날짜, 선호도 등)
 
 예시:
+"글렌하우스 웹서치해줘" → wedding,web_search
+"더채플 후기 알아봐" → wedding,web_search  
 "압구정 스튜디오 추천" → wedding,db_query
 "5000만원 예산 분배" → wedding,calculator,memo_update  
 "웨딩 트렌드 알려줘" → wedding,web_search
 "안녕하세요" → general,
 
 답변 형식:
-wedding,db_query (업체 검색만 필요)
+wedding,web_search (웹 검색 필요)
+wedding,db_query (DB 검색만 필요)
 wedding,calculator,memo_update (계산 + 메모 저장)
-wedding,web_search (웹 검색만 필요)
 wedding, (툴 불필요, 단순 질문)
 general, (일반 대화)
 
@@ -66,7 +70,6 @@ general, (일반 대화)
         
         intent = "wedding" if "wedding" in parts[0].lower() else "general"
         
-        # 툴들 추출 (여러 개 가능)
         tools_needed = []
         if len(parts) > 1:
             for i in range(1, len(parts)):
@@ -75,6 +78,7 @@ general, (일반 대화)
                     tools_needed.append(tool)
         
         print(f"[DEBUG] Intent: {intent}, Tools: {tools_needed}")
+        print(f"[DEBUG] Original message: {last_message}")
         
         return {
             "intent": intent,

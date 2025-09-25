@@ -1,6 +1,6 @@
 import os
 import json
-import re # re 모듈을 최상단으로 이동했습니다.
+import re 
 from typing import Dict, Any, List
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -35,55 +35,90 @@ def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[
         budget = user_memo.get("budget", "") if user_memo else ""
         location = user_memo.get("preferred_location", "") if user_memo else ""
         
-        # LLM을 사용해 자연어 쿼리를 SQL로 변환
+        # 간단한 샘플 데이터 가져오기 (인라인)
+        sample_info = ""
+        try:
+            with engine.connect() as conn:
+                # 웨딩홀 샘플 1개만 가져오기
+                sample_result = conn.execute(sa.text("SELECT conm, min_fee, subway FROM wedding_hall LIMIT 1"))
+                sample_row = sample_result.fetchone()
+                if sample_row:
+                    sample_info = f"예시 데이터: 업체명='{sample_row[0]}', 최소비용={sample_row[1]}원, 지하철='{sample_row[2]}'"
+        except:
+            sample_info = "샘플 데이터 없음"
+        
+        # 예산 숫자 추출 (인라인)
+        budget_amount = None
+        if budget:
+            import re
+            numbers = re.findall(r'\d+', budget)
+            if numbers:
+                amount = int(numbers[0])
+                # "만원" 포함이거나 10만 미만이면 만원단위로 가정
+                if "만" in budget or amount < 100000:
+                    budget_amount = amount * 10000
+                else:
+                    budget_amount = amount
+        
         table_info = db.get_table_info()
         
+        # 개선된 프롬프트
         prompt = f"""
-        다음 테이블 정보를 참고해서 사용자 요청에 맞는 SQL 쿼리를 작성해주세요.
-        
-        테이블 정보:
-        {table_info}
-        
-        사용자 요청: {query_request}
-        사용자 예산: {budget}
-        선호 지역: {location}
-        
-        조건:
-        1. 예산이 있으면 min_fee나 관련 가격 컬럼으로 필터링
-        2. 지역이 있으면 subway 컬umn에서 관련 지하철역으로 필터링
-        3. 결과는 최대 5개로 제한
-        4. 깔끔한 SQL 쿼리만 반환 (설명, 백틱, 주석 없이)
-        
-        예시: SELECT conm, min_fee, subway FROM wedding_hall WHERE min_fee <= 1000000 LIMIT 5
-        """
+테이블 정보: {table_info}
+{sample_info}
+
+사용자 요청: {query_request}
+사용자 예산: {budget} (숫자추출: {budget_amount}원)
+선호 지역: {location}
+
+SQL 작성 규칙:
+1. 예산이 있으면: WHERE min_fee <= {budget_amount}
+2. 지역이 있으면: WHERE subway LIKE '%{location}%' 
+3. 결과 제한: LIMIT 5
+4. 가격 오름차순: ORDER BY min_fee ASC
+
+SQL 쿼리만 반환 (설명 없이):
+"""
         
         sql_response = llm.invoke([HumanMessage(content=prompt)])
-        sql_query = sql_response.content.strip()
         
-        # SQL 정리 (혹시 있을 특수문자 제거)
+        # SQL 정리 (인라인) - 간단하게
+        sql_query = sql_response.content.strip()
+        # 마크다운 블록 제거
         sql_query = sql_query.replace('```sql', '').replace('```', '').strip()
+        # 첫 번째 SELECT 문만 추출
+        if 'SELECT' in sql_query.upper():
+            start_idx = sql_query.upper().find('SELECT')
+            sql_query = sql_query[start_idx:]
         
         print(f"[DEBUG] Generated SQL: {repr(sql_query)}")
+        print(f"[DEBUG] Budget: {budget} -> {budget_amount}원")
         
-        # 직접 SQLAlchemy 엔진 사용
+        # SQL 쿼리 실행
         with engine.connect() as conn:
             result = conn.execute(sa.text(sql_query))
             rows = result.fetchall()
             columns = list(result.keys())
             
-            # 결과를 딕셔너리 리스트로 변환
+            # 결과 변환 - 가격 포맷팅 포함
             results = []
             for row in rows:
                 row_dict = {}
                 for i, col in enumerate(columns):
-                    row_dict[col] = row[i]
+                    value = row[i]
+                    # 가격 컬럼이면 포맷팅
+                    if col in ['min_fee', 'rental_fee'] and value is not None:
+                        row_dict[col] = f"{value:,}원"
+                    else:
+                        row_dict[col] = value
                 results.append(row_dict)
         
         return {
-            "status": "success",
+            "status": "success", 
             "query": sql_query,
             "results": results,
-            "count": len(results)
+            "count": len(results),
+            "message": f"실제 데이터베이스에서 {len(results)}개 업체 조회 완료"
         }
         
     except Exception as e:
@@ -229,15 +264,41 @@ def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[st
             if tool_name == "db_query":
                 results[tool_name] = db_query_tool(user_message, user_memo)
             elif tool_name == "web_search":
-                results[tool_name] = web_search_tool(user_message)
+                # 직접 tavily_search 사용
+                try:
+                    search_results = tavily_search.invoke({"query": user_message})
+                    
+                    formatted_results = []
+                    for result in search_results:
+                        formatted_results.append({
+                            "title": result.get("title", ""),
+                            "url": result.get("url", ""), 
+                            "snippet": result.get("content", "")
+                        })
+                    
+                    results[tool_name] = {
+                        "status": "success",
+                        "query": user_message,
+                        "results": formatted_results,
+                        "count": len(formatted_results)
+                    }
+                    
+                except Exception as e:
+                    results[tool_name] = {
+                        "status": "error",
+                        "error": str(e),
+                        "results": f"웹 검색 중 오류가 발생했습니다: {str(e)}"
+                    }
+                    
             elif tool_name == "calculator":
                 results[tool_name] = calculator_tool(user_message, user_memo)
             elif tool_name == "memo_update":
-                results[tool_name] = memo_update_tool(user_memo or {})
+                results[tool_name] = memo_update_tool(json.dumps(user_memo or {}))
             else:
                 results[tool_name] = {"status": "error", "error": f"Unknown tool: {tool_name}"}
                 
         except Exception as e:
+            print(f"[ERROR] Tool {tool_name} failed: {str(e)}")
             results[tool_name] = {"status": "error", "error": str(e)}
     
     return results
