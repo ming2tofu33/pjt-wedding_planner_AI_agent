@@ -125,23 +125,18 @@ def tool_execution_node(state: State) -> Dict[str, Any]:
         return {"tool_results": error_results}
     
 def memo_update_node(state: State) -> Dict[str, Any]:
-    """사용자 메모리 JSON 파일 업데이트"""
-    
+    """사용자 메모리 업데이트 - 대화에서 정보 추출"""
     user_id = os.getenv('DEFAULT_USER_ID', 'mvp-test-user')
     memo_path = f"./memories/{user_id}.json"
     
     # memories 디렉토리 생성
     os.makedirs("./memories", exist_ok=True)
     
-    # 안전하게 memo 가져오기
-    current_memo = state.get("memo", {})
-    if current_memo:
-        current_memo = current_memo.copy()
-    else:
-        current_memo = {}
+    # 현재 사용자 입력
+    current_input = state["messages"][-1].content if state["messages"] else ""
     
+    # 기존 메모 로드
     try:
-        # 기존 메모리 로드
         if os.path.exists(memo_path):
             with open(memo_path, 'r', encoding='utf-8') as f:
                 existing_memo = json.load(f)
@@ -154,37 +149,8 @@ def memo_update_node(state: State) -> Dict[str, Any]:
                 "confirmed_vendors": {},
                 "notes": []
             }
-        
-        # 새로운 정보가 있으면 업데이트하고 타임스탬프 추가
-        updated = False
-        current_time = datetime.now().isoformat()
-        
-        # current_memo와 기존 메모를 병합
-        for key, value in current_memo.items():
-            if value and value != existing_memo.get(key, ""):
-                existing_memo[key] = value
-                if "notes" not in existing_memo:
-                    existing_memo["notes"] = []
-                existing_memo["notes"].append({
-                    "timestamp": current_time,
-                    "update": f"{key} updated to: {value}"
-                })
-                updated = True
-        
-        # 업데이트된 경우에만 파일 저장
-        if updated:
-            with open(memo_path, 'w', encoding='utf-8') as f:
-                json.dump(existing_memo, f, ensure_ascii=False, indent=2)
-            print(f"[DEBUG] 메모 업데이트 완료: {updated}")
-        
-        return {
-            "memo": existing_memo
-        }
-        
-    except Exception as e:
-        print(f"메모 업데이트 중 오류: {e}")
-        # 에러 시에도 기본 구조 반환
-        default_memo = {
+    except:
+        existing_memo = {
             "budget": "",
             "preferred_location": "",
             "wedding_date": "",
@@ -192,8 +158,69 @@ def memo_update_node(state: State) -> Dict[str, Any]:
             "confirmed_vendors": {},
             "notes": []
         }
+    
+    # LLM으로 사용자 입력에서 정보 추출
+    prompt = f"""
+현재 메모: {json.dumps(existing_memo, ensure_ascii=False)}
+사용자 입력: {current_input}
+
+사용자 입력에서 결혼 준비 관련 정보를 추출해서 메모를 업데이트해주세요.
+
+추출할 정보:
+- budget: 예산 관련 정보 (예: "5000만원", "3000만원 정도")
+- preferred_location: 선호 지역 (예: "압구정", "강남", "홍대")  
+- wedding_date: 결혼 날짜 (예: "2024년 12월", "내년 봄")
+- style: 선호 스타일 (예: "모던", "클래식", "빈티지")
+
+변경사항이 없으면 빈 객체 {{}}를 반환하세요.
+새로운 정보만 JSON으로 반환하세요.
+
+예시:
+입력: "압구정 근처 웨딩홀 찾아요"
+출력: {{"preferred_location": "압구정"}}
+
+입력: "예산은 5000만원 정도 생각해요"  
+출력: {{"budget": "5000만원"}}
+
+JSON만 반환:
+"""
+
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        new_info = json.loads(response.content.strip())
+        
+        print(f"[DEBUG] 추출된 정보: {new_info}")
+        
+        # 새로운 정보가 있으면 업데이트
+        updated = False
+        current_time = datetime.now().isoformat()
+        
+        if new_info:
+            for key, value in new_info.items():
+                if key in existing_memo and value and value != existing_memo.get(key, ""):
+                    existing_memo[key] = value
+                    if "notes" not in existing_memo:
+                        existing_memo["notes"] = []
+                    existing_memo["notes"].append({
+                        "timestamp": current_time,
+                        "update": f"{key} updated to: {value}"
+                    })
+                    updated = True
+            
+            # 업데이트된 경우에만 파일 저장
+            if updated:
+                with open(memo_path, 'w', encoding='utf-8') as f:
+                    json.dump(existing_memo, f, ensure_ascii=False, indent=2)
+                print(f"[DEBUG] 메모 파일 저장 완료")
+        
         return {
-            "memo": current_memo if current_memo else default_memo
+            "memo": existing_memo
+        }
+        
+    except Exception as e:
+        print(f"메모 업데이트 중 오류: {e}")
+        return {
+            "memo": existing_memo
         }
     
 def response_generation_node(state: State) -> Dict[str, Any]:
