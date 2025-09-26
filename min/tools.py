@@ -1,16 +1,32 @@
 import os
 import json
-import re 
+import re
 from typing import Dict, Any, List
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
-from db import db, engine # db, engine 객체는 이 파일 외부에서 import 된다고 가정
+from db import db, engine
 import sqlalchemy as sa
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# 안전한 타입 체크 유틸리티 함수
+def safe_str_join(items, separator=" "):
+    """안전하게 리스트를 문자열로 연결"""
+    if not items:
+        return ""
+    safe_items = [str(item) for item in items if item is not None]
+    return separator.join(safe_items)
+
+def safe_get_content(message):
+    """메시지에서 안전하게 content 추출"""
+    if not message:
+        return ""
+    if hasattr(message, 'content') and message.content:
+        return str(message.content)
+    return ""
 
 # OpenAI 모델 초기화
 llm = ChatOpenAI(
@@ -25,120 +41,241 @@ tavily_search = TavilySearchResults(
     api_key=os.getenv('TAVILY_API_KEY')
 )
 
-@tool
 def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    웨딩 관련 업체 정보를 데이터베이스에서 조회
+    웨딩 관련 업체 정보를 데이터베이스에서 조회 (새로운 메모 구조 반영)
     """
     try:
-        # 사용자 메모에서 조건 추출
-        budget = user_memo.get("budget", "") if user_memo else ""
-        location = user_memo.get("preferred_location", "") if user_memo else ""
+        # query_request가 리스트 형태로 올 경우 문자열로 변환
+        if isinstance(query_request, list):
+            if query_request and isinstance(query_request[0], dict) and 'text' in query_request[0]:
+                actual_query = query_request[0]['text']
+            else:
+                actual_query = str(query_request[0]) if query_request else ""
+        else:
+            actual_query = str(query_request)
         
-        # 간단한 샘플 데이터 가져오기 (인라인)
-        sample_info = ""
-        try:
-            with engine.connect() as conn:
-                # 웨딩홀 샘플 1개만 가져오기
-                sample_result = conn.execute(sa.text("SELECT conm, min_fee, subway FROM wedding_hall LIMIT 1"))
-                sample_row = sample_result.fetchone()
-                if sample_row:
-                    sample_info = f"예시 데이터: 업체명='{sample_row[0]}', 최소비용={sample_row[1]}원, 지하철='{sample_row[2]}'"
-        except:
-            sample_info = "샘플 데이터 없음"
+        print(f"[DEBUG] DB Query 시작 - 요청: {actual_query}")
+        print(f"[DEBUG] 원본 query_request 타입: {type(query_request)}")
+        print(f"[DEBUG] 사용자 메모: {user_memo}")
         
-        # 예산 숫자 추출 (인라인)
-        budget_amount = None
-        if budget:
-            import re
-            numbers = re.findall(r'\d+', budget)
-            if numbers:
-                amount = int(numbers[0])
-                # "만원" 포함이거나 10만 미만이면 만원단위로 가정
-                if "만" in budget or amount < 100000:
-                    budget_amount = amount * 10000
-                else:
-                    budget_amount = amount
+        # 새로운 메모 구조에서 조건 추출
+        budget = ""
+        location = ""
         
+        if user_memo:
+            # 예산 정보 추출 (새로운 구조: budget.total, budget.wedding_hall 등)
+            budget_info = user_memo.get("budget", {})
+            if isinstance(budget_info, dict):
+                # 총 예산이 있으면 우선 사용
+                if budget_info.get("total"):
+                    budget = budget_info.get("total")
+                # 특정 업체 예산이 있으면 해당 예산 사용
+                elif budget_info.get("wedding_hall") and "웨딩홀" in actual_query:
+                    budget = budget_info.get("wedding_hall")
+                elif budget_info.get("wedding_dress") and "드레스" in actual_query:
+                    budget = budget_info.get("wedding_dress")
+                elif budget_info.get("studio") and "스튜디오" in actual_query:
+                    budget = budget_info.get("studio")
+                elif budget_info.get("makeup") and "메이크업" in actual_query:
+                    budget = budget_info.get("makeup")
+            elif isinstance(budget_info, str):
+                # 기존 구조 호환성
+                budget = budget_info
+            
+            # 선호 지역 정보 추출 (새로운 구조: preferred_locations 배열)
+            preferred_locations = user_memo.get("preferred_locations", [])
+            if isinstance(preferred_locations, list) and preferred_locations:
+                location = preferred_locations[0]  # 첫 번째 선호 지역 사용
+            elif isinstance(preferred_locations, str):
+                # 기존 구조 호환성
+                location = preferred_locations
+            
+            # 주소 정보도 활용 (거주지가 선호 지역일 가능성)
+            if not location and user_memo.get("address"):
+                location = user_memo.get("address")
+        
+        print(f"[DEBUG] 추출된 예산: {budget}")
+        print(f"[DEBUG] 추출된 선호지역: {location}")
+        
+        # 테이블 정보 가져오기
         table_info = db.get_table_info()
+        print(f"[DEBUG] 사용 가능한 테이블: {table_info[:500]}...")
         
-        # 개선된 프롬프트
-        prompt = f"""
-테이블 정보: {table_info}
-{sample_info}
+        # LLM을 사용해 자연어 쿼리를 SQL로 변환 (개선된 프롬프트)
+        sql_generation_prompt = f"""
+다음 테이블 정보를 참고해서 사용자 요청에 맞는 SQL 쿼리를 작성해주세요.
 
-사용자 요청: {query_request}
-사용자 예산: {budget} (숫자추출: {budget_amount}원)
+테이블 정보:
+{table_info}
+
+사용자 요청: {actual_query}
+사용자 예산: {budget}
 선호 지역: {location}
 
-SQL 작성 규칙:
-1. 예산이 있으면: WHERE min_fee <= {budget_amount}
-2. 지역이 있으면: WHERE subway LIKE '%{location}%' 
-3. 결과 제한: LIMIT 5
-4. 가격 오름차순: ORDER BY min_fee ASC
+쿼리 작성 규칙:
+1. 업체 유형 매핑:
+   - "드레스" 관련 요청 → wedding_dress 테이블
+   - "웨딩홀", "예식장" 관련 요청 → wedding_hall 테이블  
+   - "스튜디오", "촬영" 관련 요청 → studio 테이블
+   - "메이크업" 관련 요청 → makeup 테이블
 
-SQL 쿼리만 반환 (설명 없이):
+2. 지역 필터링:
+   - 지역명이나 지하철역명이 언급되면 subway 컬럼에서 LIKE 검색
+   - 예: "청담역" → WHERE subway LIKE '%청담%'
+   - 예: "강남" → WHERE subway LIKE '%강남%'
+
+3. 예산 필터링:
+   - 예산 정보가 있으면 min_fee 컬럼 활용
+   - 예산 범위 내의 업체만 조회
+   - 예산에서 숫자 추출: "5000만원" → 50000000
+
+4. 결과 제한:
+   - 요청에서 "3곳", "5개" 등 숫자가 언급되면 그 수만큼 LIMIT
+   - 언급이 없으면 기본적으로 LIMIT 5
+
+5. 컬럼 선택:
+   - conm (업체명), min_fee (최소비용), subway (지하철역), address (주소) 등 유용한 정보 선택
+   - 모든 컬럼(*)보다는 필요한 컬럼만 선택
+
+6. 정렬:
+   - 예산이 있으면 min_fee 오름차순 정렬 (저렴한 순)
+   - 예산이 없으면 conm 오름차순 정렬 (이름순)
+
+예시:
+- "청담역 근처 드레스 3곳 추천해줘" 
+  → SELECT conm, min_fee, subway, address FROM wedding_dress WHERE subway LIKE '%청담%' ORDER BY min_fee ASC LIMIT 3
+
+- "강남 웨딩홀 찾아줘"
+  → SELECT conm, min_fee, subway, address FROM wedding_hall WHERE subway LIKE '%강남%' ORDER BY min_fee ASC LIMIT 5
+
+SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
 """
         
-        sql_response = llm.invoke([HumanMessage(content=prompt)])
-        
-        # SQL 정리 (인라인) - 간단하게
+        # SQL 쿼리 생성
+        sql_response = llm.invoke([HumanMessage(content=sql_generation_prompt)])
         sql_query = sql_response.content.strip()
-        # 마크다운 블록 제거
+        
+        # SQL 정리 (혹시 있을 특수문자 제거)
         sql_query = sql_query.replace('```sql', '').replace('```', '').strip()
-        # 첫 번째 SELECT 문만 추출
-        if 'SELECT' in sql_query.upper():
-            start_idx = sql_query.upper().find('SELECT')
-            sql_query = sql_query[start_idx:]
         
-        print(f"[DEBUG] Generated SQL: {repr(sql_query)}")
-        print(f"[DEBUG] Budget: {budget} -> {budget_amount}원")
+        # 세미콜론 제거 (보안상 안전)
+        if sql_query.endswith(';'):
+            sql_query = sql_query[:-1]
         
-        # SQL 쿼리 실행
+        print(f"[DEBUG] 생성된 SQL: {sql_query}")
+        
+        # SQL 실행 (안전한 방법으로)
         with engine.connect() as conn:
+            # 트랜잭션 없이 읽기 전용으로 실행
             result = conn.execute(sa.text(sql_query))
             rows = result.fetchall()
             columns = list(result.keys())
             
-            # 결과 변환 - 가격 포맷팅 포함
+            print(f"[DEBUG] 조회된 행 수: {len(rows)}")
+            print(f"[DEBUG] 컬럼명: {columns}")
+            
+            # 결과를 딕셔너리 리스트로 변환
             results = []
             for row in rows:
                 row_dict = {}
                 for i, col in enumerate(columns):
                     value = row[i]
-                    # 가격 컬럼이면 포맷팅
-                    if col in ['min_fee', 'rental_fee'] and value is not None:
-                        row_dict[col] = f"{value:,}원"
-                    else:
-                        row_dict[col] = value
+                    # None 값 처리
+                    if value is None:
+                        value = "정보없음"
+                    row_dict[col] = value
                 results.append(row_dict)
+            
+            print(f"[DEBUG] 변환된 결과: {results}")
         
+        # 성공적인 응답 반환
         return {
-            "status": "success", 
+            "status": "success",
             "query": sql_query,
             "results": results,
             "count": len(results),
-            "message": f"실제 데이터베이스에서 {len(results)}개 업체 조회 완료"
+            "message": f"{len(results)}개의 업체를 찾았습니다."
         }
         
     except Exception as e:
-        print(f"[ERROR] DB query error: {e}")
+        print(f"[ERROR] DB query 실행 중 오류: {e}")
+        print(f"[ERROR] 오류 타입: {type(e)}")
+        
+        # 구체적인 오류 메시지 제공
+        error_message = str(e)
+        if "no such table" in error_message.lower():
+            error_message = "요청하신 업체 유형의 데이터를 찾을 수 없습니다."
+        elif "no such column" in error_message.lower():
+            error_message = "데이터베이스 구조에 문제가 있습니다."
+        elif "syntax error" in error_message.lower():
+            error_message = "검색 조건을 처리하는 중 오류가 발생했습니다."
+        else:
+            error_message = "데이터베이스 조회 중 오류가 발생했습니다."
+        
         return {
             "status": "error",
-            "error": str(e),
-            "results": "데이터베이스 조회 중 오류가 발생했습니다."
+            "error": error_message,
+            "results": [],
+            "count": 0,
+            "query": query_request,
+            "message": f"죄송합니다. {error_message} 다른 조건으로 다시 시도해보세요."
         }
+        
 
-@tool
-def web_search_tool(search_query: str) -> Dict[str, Any]:
+# 웹 검색 툴은 기존과 동일
+def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    TAVILY를 사용한 실제 웹 검색
+    TAVILY를 사용한 실제 웹 검색 (컨텍스트 활용 개선)
     """
     try:
-        # Tavily로 웹 검색 실행
-        search_results = tavily_search.invoke({"query": search_query})
+        # search_query가 리스트 형태로 올 경우 문자열로 변환
+        if isinstance(search_query, list):
+            if search_query and isinstance(search_query[0], dict) and 'text' in search_query[0]:
+                actual_query = search_query[0]['text']
+            else:
+                actual_query = str(search_query[0]) if search_query else ""
+        else:
+            actual_query = str(search_query)
         
-        # 결과 정리
+        print(f"[DEBUG] 웹 검색 시작: {actual_query}")
+        print(f"[DEBUG] 원본 search_query 타입: {type(search_query)}")
+        print(f"[DEBUG] 컨텍스트 데이터: {context_data}")
+        
+        # 검색 쿼리 개선
+        enhanced_query = actual_query
+        
+        # 컨텍스트에서 업체명 추출하여 검색 쿼리 보강
+        if context_data and isinstance(context_data, dict):
+            db_results = context_data.get("db_query", {}).get("results", [])
+            if db_results and isinstance(db_results, list):
+                # DB에서 찾은 업체명들을 검색 쿼리에 포함
+                company_names = []
+                for result in db_results:
+                    if isinstance(result, dict) and result.get("conm"):
+                        company_names.append(str(result.get("conm")))
+                
+                if company_names:
+                    enhanced_query = f"{search_query} {' '.join(company_names[:3])}"  # 상위 3개만
+        
+        # "그 업체들", "위의 업체들" 같은 참조 표현 처리
+        if any(word in search_query for word in ["그 업체", "위의", "위에서", "앞서"]):
+            if context_data and "db_query" in context_data:
+                db_results = context_data.get("db_query", {}).get("results", [])
+                if db_results and isinstance(db_results, list):
+                    company_names = []
+                    for result in db_results:
+                        if isinstance(result, dict) and result.get("conm"):
+                            company_names.append(str(result.get("conm")))
+                    
+                    if company_names:
+                        enhanced_query = f"웨딩 {' '.join(company_names)} 업체 정보 후기"
+        
+        print(f"[DEBUG] 개선된 검색 쿼리: {enhanced_query}")
+        
+        # Tavily 검색 실행
+        search_results = tavily_search.invoke({"query": enhanced_query})
+        
         formatted_results = []
         for result in search_results:
             formatted_results.append({
@@ -149,65 +286,76 @@ def web_search_tool(search_query: str) -> Dict[str, Any]:
         
         return {
             "status": "success",
-            "query": search_query,
+            "query": enhanced_query,
+            "original_query": search_query,
             "results": formatted_results,
             "count": len(formatted_results)
         }
         
     except Exception as e:
+        print(f"[ERROR] 웹 검색 오류: {e}")
         return {
             "status": "error",
             "error": str(e),
             "results": f"웹 검색 중 오류가 발생했습니다: {str(e)}"
         }
 
-@tool
+# 계산기 툴도 개선
 def calculator_tool(calculation_request: str, context_data: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    계산 툴 - 단순 계산 + 웨딩 특화 계산
+    계산 툴 - 단순 계산 + 웨딩 특화 계산 (개선된 버전)
     """
     try:
-        # 1. 단순 수식 계산 지원 (가장 먼저 처리)
-        # 쉼표(,) 제거 및 공백 정리
-        cleaned_request = calculation_request.replace(',', '').strip()
+        # calculation_request가 리스트 형태로 올 경우 문자열로 변환
+        if isinstance(calculation_request, list):
+            if calculation_request and isinstance(calculation_request[0], dict) and 'text' in calculation_request[0]:
+                actual_request = calculation_request[0]['text']
+            else:
+                actual_request = str(calculation_request[0]) if calculation_request else ""
+        else:
+            actual_request = str(calculation_request)
         
-        # 숫자, 공백, 기본 연산자(+, -, *, /, (, ))로만 구성되었는지 확인
+        print(f"[DEBUG] 계산 요청: {actual_request}")
+        print(f"[DEBUG] 원본 calculation_request 타입: {type(calculation_request)}")
+        print(f"[DEBUG] 컨텍스트 데이터: {context_data}")
+        
+        # 1. 단순 수식 계산 지원
+        cleaned_request = actual_request.replace(',', '').replace('만원', '0000').replace('억', '00000000').strip()
+        
+        # 숫자와 기본 연산자로만 구성되었는지 확인
         if re.fullmatch(r'[\d\s+\-*/().]+', cleaned_request):
             try:
-                # eval을 사용해 단순 수식 계산
                 simple_result = eval(cleaned_request)
                 return {
                     "status": "success",
                     "request": calculation_request,
-                    "result": simple_result,
+                    "result": f"{simple_result:,}",
                     "type": "simple_calculation",
                     "explanation": f"{calculation_request} = {simple_result:,}"
                 }
             except Exception as e:
-                # 단순 계산 오류는 LLM 로직으로 넘어가도록 처리
-                print(f"[DEBUG] Simple calculation error, deferring to LLM: {e}")
-                pass
+                print(f"[DEBUG] 단순 계산 실패, LLM으로 진행: {e}")
         
-        # 2. LLM을 사용해 계산 요청 해석 및 실행 (웨딩 특화 계산)
-        prompt = f"""
-        다음 계산 요청을 처리해주세요. 웨딩 관련 계산이면 적절한 공식을 사용하세요.
+        # 2. LLM을 사용한 웨딩 특화 계산
+        calc_prompt = f"""
+다음 계산 요청을 처리해주세요. 웨딩 관련 계산이면 적절한 공식을 사용하세요.
+
+계산 요청: {calculation_request}
+컨텍스트: {json.dumps(context_data, ensure_ascii=False) if context_data else "없음"}
+
+웨딩 관련 계산 예시:
+- 총 예산 계산: 각 카테고리별 비용 합계
+- 하객수 기반 예산: 하객 1명당 식대 + 답례품 비용  
+- 업체별 비용 비교: 여러 업체 견적 비교
+- 예산 분배: 총예산을 카테고리별로 분배 (웨딩홀 40%, 스드메 30%, 기타 30%)
+
+결과를 다음 형식으로 답변해주세요:
+계산식: [사용한 공식]
+결과: [숫자 결과] 
+설명: [계산 과정 설명]
+"""
         
-        계산 요청: {calculation_request}
-        컨텍스트: {json.dumps(context_data, ensure_ascii=False) if context_data else "없음"}
-        
-        웨딩 관련 계산 예시:
-        - 총 예산 계산: 각 카테고리별 비용 합계
-        - 하객수 기반 예산: 하객 1명당 식대 + 답례품 비용
-        - 업체별 비용 비교: 여러 업체 견적 비교
-        - 예산 분배: 총예산을 카테고리별로 분배
-        
-        결과를 다음 형식으로 답변해주세요:
-        계산식: [사용한 공식]
-        결과: [숫자 결과]
-        설명: [계산 과정 설명]
-        """
-        
-        calc_response = llm.invoke([HumanMessage(content=prompt)])
+        calc_response = llm.invoke([HumanMessage(content=calc_prompt)])
         
         return {
             "status": "success",
@@ -218,19 +366,18 @@ def calculator_tool(calculation_request: str, context_data: Dict[str, Any] = Non
         }
         
     except Exception as e:
+        print(f"[ERROR] 계산 오류: {e}")
         return {
             "status": "error",
             "error": str(e),
             "result": "계산 중 오류가 발생했습니다."
         }
 
-@tool  
 def memo_update_tool(update_data: str) -> Dict[str, Any]:
     """
-    메모 업데이트 툴 (문자열 입력으로 변경)
+    메모 업데이트 툴
     """
     try:
-        # 문자열을 딕셔너리로 변환 시도
         if isinstance(update_data, str):
             try:
                 data = json.loads(update_data)
@@ -246,59 +393,51 @@ def memo_update_tool(update_data: str) -> Dict[str, Any]:
         }
         
     except Exception as e:
+        print(f"[ERROR] 메모 업데이트 오류: {e}")
         return {
             "status": "error",
             "error": str(e),
             "message": "메모 업데이트 중 오류가 발생했습니다."
         }
 
-# 툴 실행 헬퍼 함수
+# 툴 실행 헬퍼 함수 (개선된 버전 - 툴 간 데이터 전달 지원)
 def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    필요한 툴들을 실행하는 헬퍼 함수
+    필요한 툴들을 실행하는 헬퍼 함수 (툴 간 데이터 전달 개선)
     """
     results = {}
     
+    print(f"[DEBUG] 실행할 툴들: {tools_needed}")
+    print(f"[DEBUG] 사용자 메시지: {user_message}")
+    print(f"[DEBUG] 사용자 메모: {user_memo}")
+    
     for tool_name in tools_needed:
         try:
+            print(f"[DEBUG] {tool_name} 툴 실행 시작")
+            
             if tool_name == "db_query":
                 results[tool_name] = db_query_tool(user_message, user_memo)
+                
             elif tool_name == "web_search":
-                # 직접 tavily_search 사용
-                try:
-                    search_results = tavily_search.invoke({"query": user_message})
-                    
-                    formatted_results = []
-                    for result in search_results:
-                        formatted_results.append({
-                            "title": result.get("title", ""),
-                            "url": result.get("url", ""), 
-                            "snippet": result.get("content", "")
-                        })
-                    
-                    results[tool_name] = {
-                        "status": "success",
-                        "query": user_message,
-                        "results": formatted_results,
-                        "count": len(formatted_results)
-                    }
-                    
-                except Exception as e:
-                    results[tool_name] = {
-                        "status": "error",
-                        "error": str(e),
-                        "results": f"웹 검색 중 오류가 발생했습니다: {str(e)}"
-                    }
-                    
+                # DB 쿼리 결과가 있으면 컨텍스트로 전달 (안전한 방식)
+                context_data = None
+                if "db_query" in results and isinstance(results["db_query"], dict):
+                    context_data = {"db_query": results["db_query"]}
+                results[tool_name] = web_search_tool(user_message, context_data)
+                
             elif tool_name == "calculator":
                 results[tool_name] = calculator_tool(user_message, user_memo)
+                
             elif tool_name == "memo_update":
-                results[tool_name] = memo_update_tool(json.dumps(user_memo or {}))
+                results[tool_name] = memo_update_tool(json.dumps(user_memo) if user_memo else "{}")
             else:
                 results[tool_name] = {"status": "error", "error": f"Unknown tool: {tool_name}"}
                 
+            print(f"[DEBUG] {tool_name} 툴 실행 완료: {results[tool_name].get('status', 'unknown')}")
+                
         except Exception as e:
-            print(f"[ERROR] Tool {tool_name} failed: {str(e)}")
+            print(f"[ERROR] {tool_name} 툴 실행 중 오류: {e}")
             results[tool_name] = {"status": "error", "error": str(e)}
     
+    print(f"[DEBUG] 모든 툴 실행 완료: {list(results.keys())}")
     return results
