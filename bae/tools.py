@@ -161,13 +161,38 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
         }
 
 # 웹 검색 툴은 기존과 동일
-def web_search_tool(search_query: str) -> Dict[str, Any]:
+def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    TAVILY를 사용한 실제 웹 검색
+    TAVILY를 사용한 실제 웹 검색 (컨텍스트 활용 개선)
     """
     try:
         print(f"[DEBUG] 웹 검색 시작: {search_query}")
-        search_results = tavily_search.invoke({"query": search_query})
+        print(f"[DEBUG] 컨텍스트 데이터: {context_data}")
+        
+        # 검색 쿼리 개선
+        enhanced_query = search_query
+        
+        # 컨텍스트에서 업체명 추출하여 검색 쿼리 보강
+        if context_data and isinstance(context_data, dict):
+            db_results = context_data.get("db_query", {}).get("results", [])
+            if db_results:
+                # DB에서 찾은 업체명들을 검색 쿼리에 포함
+                company_names = [result.get("conm", "") for result in db_results if result.get("conm")]
+                if company_names:
+                    enhanced_query = f"{search_query} {' '.join(company_names[:3])}"  # 상위 3개만
+        
+        # "그 업체들", "위의 업체들" 같은 참조 표현 처리
+        if any(word in search_query for word in ["그 업체", "위의", "위에서", "앞서"]):
+            if context_data and "db_query" in context_data:
+                db_results = context_data.get("db_query", {}).get("results", [])
+                if db_results:
+                    company_names = [result.get("conm", "") for result in db_results]
+                    enhanced_query = f"웨딩 {' '.join(company_names)} 업체 정보 후기"
+        
+        print(f"[DEBUG] 개선된 검색 쿼리: {enhanced_query}")
+        
+        # Tavily 검색 실행
+        search_results = tavily_search.invoke({"query": enhanced_query})
         
         formatted_results = []
         for result in search_results:
@@ -179,7 +204,8 @@ def web_search_tool(search_query: str) -> Dict[str, Any]:
         
         return {
             "status": "success",
-            "query": search_query,
+            "query": enhanced_query,
+            "original_query": search_query,
             "results": formatted_results,
             "count": len(formatted_results)
         }
@@ -282,10 +308,10 @@ def memo_update_tool(update_data: str) -> Dict[str, Any]:
             "message": "메모 업데이트 중 오류가 발생했습니다."
         }
 
-# 툴 실행 헬퍼 함수 (개선된 버전)
+# 툴 실행 헬퍼 함수 (개선된 버전 - 툴 간 데이터 전달 지원)
 def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    필요한 툴들을 실행하는 헬퍼 함수 (개선된 버전)
+    필요한 툴들을 실행하는 헬퍼 함수 (툴 간 데이터 전달 개선)
     """
     results = {}
     
@@ -299,10 +325,15 @@ def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[st
             
             if tool_name == "db_query":
                 results[tool_name] = db_query_tool(user_message, user_memo)
+                
             elif tool_name == "web_search":
-                results[tool_name] = web_search_tool(user_message)
+                # DB 쿼리 결과가 있으면 컨텍스트로 전달
+                context_data = {"db_query": results.get("db_query", {})} if "db_query" in results else None
+                results[tool_name] = web_search_tool(user_message, context_data)
+                
             elif tool_name == "calculator":
                 results[tool_name] = calculator_tool(user_message, user_memo)
+                
             elif tool_name == "memo_update":
                 results[tool_name] = memo_update_tool(json.dumps(user_memo) if user_memo else "{}")
             else:
