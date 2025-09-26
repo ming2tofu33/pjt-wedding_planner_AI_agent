@@ -1,6 +1,6 @@
 {
   "budget": "1억",
-  "preferred_location": "압구정",
+  "preferred_location": "잠실",
   "wedding_date": "10월 25일",
   "style": "트렌디하고 개성 있는",
   "confirmed_vendors": {},
@@ -36,6 +36,10 @@
     {
       "timestamp": "2025-09-25T16:56:18.749980",
       "update": "style updated to: 트렌디하고 개성 있는"
+    },
+    {
+      "timestamp": "2025-09-26T12:58:07.535198",
+      "update": "preferred_location updated to: 잠실"
     }
   ]
 }
