@@ -17,13 +17,22 @@ llm = ChatOpenAI(
 )
 
 def parsing_node(state) -> Dict[str, Any]:
-    """사용자 메시지의 의도를 파싱하고 필요한 툴 판단"""
+    """사용자 메시지의 의도를 파싱하고 필요한 툴 판단 (개선된 버전)"""
     last_message = state["messages"][-1].content if state["messages"] else ""
     memo = state.get("memo", {})
+    
+    # 이전 대화에서 언급된 업체명들을 추출 (컨텍스트 활용)
+    previous_context = ""
+    if len(state["messages"]) > 2:  # 이전 대화가 있다면
+        recent_messages = state["messages"][-4:]  # 최근 4개 메시지 확인
+        for msg in recent_messages:
+            if hasattr(msg, 'content') and msg.content:
+                previous_context += msg.content + " "
     
     prompt = f"""
 메시지: {last_message}
 현재 메모: {json.dumps(memo, ensure_ascii=False)}
+최근 대화 컨텍스트: {previous_context}
 
 다음을 판단해주세요:
 
@@ -32,30 +41,46 @@ def parsing_node(state) -> Dict[str, Any]:
 웨딩 관련 키워드들:
 - 업체: 웨딩홀, 스튜디오(웨딩 촬영), 드레스, 메이크업, 플로리스트, 케이크, 한복
 - 장소: 압구정, 강남, 홍대 등 + "스튜디오/웨딩홀" 조합
-- 행동: 추천, 찾기, 예약, 견적, 비교
+- 행동: 추천, 찾기, 예약, 견적, 비교, 검색, 웹서치
 - 예산: 가격, 비용, 예산, 계산
 - 기타: 결혼, 웨딩, 신부, 신랑, 하객
 
-2. 웨딩 관련인 경우 필요한 툴들:
-   - db_query: 웨딩홀, 스튜디오, 드레스, 메이크업 업체 검색이 필요한 경우
+2. 웨딩 관련인 경우 필요한 툴들 (복수 선택 가능):
+   
+   - db_query: 다음 경우에 사용
+     * "추천해줘", "찾아줘" + 업체 유형 (드레스, 웨딩홀, 스튜디오, 메이크업)
+     * 지역 + 업체 유형 조합 ("압구정 드레스", "강남 웨딩홀")
+     * 예: "청담역 드레스 추천", "강남 웨딩홀 찾아줘"
+
+   - web_search: 다음 경우에 반드시 사용
+     * 명시적 검색 요청: "검색", "웹서치", "찾아봐", "알아봐", "정보 알려줘"
+     * 특정 업체명 언급: "더케네스블랑", "글렌하우스", "스튜디오노바" 등 고유명사
+     * 추천 후 상세정보 요청: "위에서 추천한 업체들", "그 업체들", "3곳 웹서치"
+     * 후기/리뷰 요청: "후기", "리뷰", "평가", "어때?"
+     * 최신 정보: "트렌드", "최근", "요즘", "지금"
+     * 연락처/위치 정보: "전화번호", "주소", "위치", "연락처"
+   
    - calculator: 예산 계산, 비용 분배, 하객수 계산 등이 필요한 경우  
-   - web_search: 다음 경우에 사용
-     * 명시적 검색 요청: "검색", "웹서치", "찾아봐", "알아봐" 등
-     * 특정 업체명 언급: "글렌하우스", "더채플", "스튜디오노바" 등 고유명사
-     * 최신 정보: "트렌드", "후기", "리뷰", "최근", "요즘" 등
-     * 웹에서만 얻을 수 있는 정보: 연락처, 위치, 영업시간 등
+   
    - memo_update: 사용자 정보를 메모에 저장해야 하는 경우 (예산, 날짜, 선호도 등)
 
+**중요한 판단 기준:**
+- "추천해줘" + "웹서치해줘" = db_query + web_search (둘 다 필요)
+- 특정 업체명이 언급되면 = web_search 반드시 포함
+- "그 업체들", "위의 업체들" = 이전 대화 참조이므로 web_search 필요
+- 단순 "추천해줘"만 있어도 상세 정보를 위해 web_search도 함께 실행하는 것이 좋음
+
 예시:
-"글렌하우스 웹서치해줘" → wedding,web_search
-"더채플 후기 알아봐" → wedding,web_search  
-"압구정 스튜디오 추천" → wedding,db_query
-"5000만원 예산 분배" → wedding,calculator,memo_update  
-"웨딩 트렌드 알려줘" → wedding,web_search
+"청담역 드레스 3곳 추천해줘" → wedding,db_query,web_search (업체 찾기 + 상세정보)
+"더케네스블랑 웹서치해줘" → wedding,web_search (특정 업체명)
+"위의 3곳 업체 웹서치해줘" → wedding,web_search (이전 대화 참조)  
+"드레스 업체 후기 알아봐" → wedding,web_search (후기 요청)
+"5000만원 예산 분배" → wedding,calculator,memo_update
 "안녕하세요" → general,
 
 답변 형식:
-wedding,web_search (웹 검색 필요)
+wedding,db_query,web_search (업체 추천 + 상세정보)
+wedding,web_search (웹 검색만 필요)
 wedding,db_query (DB 검색만 필요)
 wedding,calculator,memo_update (계산 + 메모 저장)
 wedding, (툴 불필요, 단순 질문)
@@ -79,6 +104,7 @@ general, (일반 대화)
         
         print(f"[DEBUG] Intent: {intent}, Tools: {tools_needed}")
         print(f"[DEBUG] Original message: {last_message}")
+        print(f"[DEBUG] Previous context: {previous_context[:100]}...")
         
         return {
             "intent": intent,
