@@ -28,7 +28,6 @@ def safe_get_content(message):
         return str(message.content)
     return ""
 
-# OpenAI 모델 초기화
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0.1,
