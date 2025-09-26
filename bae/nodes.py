@@ -26,7 +26,7 @@ def parsing_node(state) -> Dict[str, Any]:
     if len(state["messages"]) > 2:  # 이전 대화가 있다면
         recent_messages = state["messages"][-4:]  # 최근 4개 메시지 확인
         for msg in recent_messages:
-            if hasattr(msg, 'content') and msg.content:
+            if hasattr(msg, 'content') and msg.content and isinstance(msg.content, str):
                 previous_context += msg.content + " "
     
     prompt = f"""
@@ -54,9 +54,9 @@ def parsing_node(state) -> Dict[str, Any]:
 
    - web_search: 다음 경우에 반드시 사용
      * 명시적 검색 요청: "검색", "웹서치", "찾아봐", "알아봐", "정보 알려줘"
-     * 특정 업체명 언급: "더케네스블랑", "글렌하우스", "스튜디오노바" 등 고유명사
+     * "찾아줘", "알려줘", "어때", "정보", "후기", "리뷰" 등이 포함된 모든 요청
+     * 업체명이나 고유명사가 언급된 경우 (DB에 있든 없든 상관없이)
      * 추천 후 상세정보 요청: "위에서 추천한 업체들", "그 업체들", "3곳 웹서치"
-     * 후기/리뷰 요청: "후기", "리뷰", "평가", "어때?"
      * 최신 정보: "트렌드", "최근", "요즘", "지금"
      * 연락처/위치 정보: "전화번호", "주소", "위치", "연락처"
    
@@ -65,17 +65,25 @@ def parsing_node(state) -> Dict[str, Any]:
    - memo_update: 사용자 정보를 메모에 저장해야 하는 경우 (예산, 날짜, 선호도 등)
 
 **중요한 판단 기준:**
-- "추천해줘" + "웹서치해줘" = db_query + web_search (둘 다 필요)
-- 특정 업체명이 언급되면 = web_search 반드시 포함
-- "그 업체들", "위의 업체들" = 이전 대화 참조이므로 web_search 필요
-- 단순 "추천해줘"만 있어도 상세 정보를 위해 web_search도 함께 실행하는 것이 좋음
+- "추천해줘" → db_query + web_search (업체 찾기 + 상세정보)
+- "찾아줘", "알려줘", "정보", "어때" → web_search 반드시 포함
+- 특정 업체/브랜드명 언급 → web_search 반드시 포함
+- "그 업체들", "위의 업체들" → web_search (이전 대화 참조)
+- 웨딩 관련 질문은 가능하면 web_search도 함께 실행 (더 풍부한 정보 제공)
+
+실제 적용 규칙:
+1. "찾아줘", "알려줘", "정보", "어때", "후기", "리뷰" 키워드가 있으면 → web_search 무조건 포함
+2. 업체 유형 + "추천해줘" → db_query + web_search 둘 다
+3. 계산/예산 관련 → calculator (+ memo_update 필요시)
+4. 일반 인사/대화 → general
 
 예시:
-"청담역 드레스 3곳 추천해줘" → wedding,db_query,web_search (업체 찾기 + 상세정보)
-"더케네스블랑 웹서치해줘" → wedding,web_search (특정 업체명)
-"위의 3곳 업체 웹서치해줘" → wedding,web_search (이전 대화 참조)  
-"드레스 업체 후기 알아봐" → wedding,web_search (후기 요청)
-"5000만원 예산 분배" → wedding,calculator,memo_update
+"청담역 드레스 3곳 추천해줘" → wedding,db_query,web_search
+"메이컵업바이김수 정보 알려줘" → wedding,web_search
+"더케네스블랑 어때?" → wedding,web_search
+"위의 3곳 업체 웹서치해줘" → wedding,web_search
+"드레스 업체 후기 찾아봐" → wedding,web_search
+"5000만원 예산 분배해줘" → wedding,calculator,memo_update
 "안녕하세요" → general,
 
 답변 형식:
@@ -101,6 +109,14 @@ general, (일반 대화)
                 tool = parts[i].strip()
                 if tool and tool in ["db_query", "calculator", "web_search", "memo_update"]:
                     tools_needed.append(tool)
+        
+        # 키워드 기반 자동 web_search 트리거 (LLM이 놓친 경우를 위한 안전장치)
+        if intent == "wedding":
+            web_search_triggers = ["찾아줘", "알려줘", "정보", "어때", "후기", "리뷰", "검색", "웹서치"]
+            if any(trigger in last_message for trigger in web_search_triggers):
+                if "web_search" not in tools_needed:
+                    tools_needed.append("web_search")
+                    print(f"[DEBUG] 키워드 트리거로 web_search 자동 추가: {last_message}")
         
         print(f"[DEBUG] Intent: {intent}, Tools: {tools_needed}")
         print(f"[DEBUG] Original message: {last_message}")

@@ -12,6 +12,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 안전한 타입 체크 유틸리티 함수
+def safe_str_join(items, separator=" "):
+    """안전하게 리스트를 문자열로 연결"""
+    if not items:
+        return ""
+    safe_items = [str(item) for item in items if item is not None]
+    return separator.join(safe_items)
+
+def safe_get_content(message):
+    """메시지에서 안전하게 content 추출"""
+    if not message:
+        return ""
+    if hasattr(message, 'content') and message.content:
+        return str(message.content)
+    return ""
+
 # OpenAI 모델 초기화
 llm = ChatOpenAI(
     model="gpt-4o-mini",
@@ -30,7 +46,17 @@ def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[
     웨딩 관련 업체 정보를 데이터베이스에서 조회 (개선된 버전)
     """
     try:
-        print(f"[DEBUG] DB Query 시작 - 요청: {query_request}")
+        # query_request가 리스트 형태로 올 경우 문자열로 변환
+        if isinstance(query_request, list):
+            if query_request and isinstance(query_request[0], dict) and 'text' in query_request[0]:
+                actual_query = query_request[0]['text']
+            else:
+                actual_query = str(query_request[0]) if query_request else ""
+        else:
+            actual_query = str(query_request)
+        
+        print(f"[DEBUG] DB Query 시작 - 요청: {actual_query}")
+        print(f"[DEBUG] 원본 query_request 타입: {type(query_request)}")
         print(f"[DEBUG] 사용자 메모: {user_memo}")
         
         # 사용자 메모에서 조건 추출
@@ -48,7 +74,7 @@ def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[
 테이블 정보:
 {table_info}
 
-사용자 요청: {query_request}
+사용자 요청: {actual_query}
 사용자 예산: {budget}
 선호 지역: {location}
 
@@ -166,18 +192,32 @@ def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> D
     TAVILY를 사용한 실제 웹 검색 (컨텍스트 활용 개선)
     """
     try:
-        print(f"[DEBUG] 웹 검색 시작: {search_query}")
+        # search_query가 리스트 형태로 올 경우 문자열로 변환
+        if isinstance(search_query, list):
+            if search_query and isinstance(search_query[0], dict) and 'text' in search_query[0]:
+                actual_query = search_query[0]['text']
+            else:
+                actual_query = str(search_query[0]) if search_query else ""
+        else:
+            actual_query = str(search_query)
+        
+        print(f"[DEBUG] 웹 검색 시작: {actual_query}")
+        print(f"[DEBUG] 원본 search_query 타입: {type(search_query)}")
         print(f"[DEBUG] 컨텍스트 데이터: {context_data}")
         
         # 검색 쿼리 개선
-        enhanced_query = search_query
+        enhanced_query = actual_query
         
         # 컨텍스트에서 업체명 추출하여 검색 쿼리 보강
         if context_data and isinstance(context_data, dict):
             db_results = context_data.get("db_query", {}).get("results", [])
-            if db_results:
+            if db_results and isinstance(db_results, list):
                 # DB에서 찾은 업체명들을 검색 쿼리에 포함
-                company_names = [result.get("conm", "") for result in db_results if result.get("conm")]
+                company_names = []
+                for result in db_results:
+                    if isinstance(result, dict) and result.get("conm"):
+                        company_names.append(str(result.get("conm")))
+                
                 if company_names:
                     enhanced_query = f"{search_query} {' '.join(company_names[:3])}"  # 상위 3개만
         
@@ -185,9 +225,14 @@ def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> D
         if any(word in search_query for word in ["그 업체", "위의", "위에서", "앞서"]):
             if context_data and "db_query" in context_data:
                 db_results = context_data.get("db_query", {}).get("results", [])
-                if db_results:
-                    company_names = [result.get("conm", "") for result in db_results]
-                    enhanced_query = f"웨딩 {' '.join(company_names)} 업체 정보 후기"
+                if db_results and isinstance(db_results, list):
+                    company_names = []
+                    for result in db_results:
+                        if isinstance(result, dict) and result.get("conm"):
+                            company_names.append(str(result.get("conm")))
+                    
+                    if company_names:
+                        enhanced_query = f"웨딩 {' '.join(company_names)} 업체 정보 후기"
         
         print(f"[DEBUG] 개선된 검색 쿼리: {enhanced_query}")
         
@@ -224,11 +269,21 @@ def calculator_tool(calculation_request: str, context_data: Dict[str, Any] = Non
     계산 툴 - 단순 계산 + 웨딩 특화 계산 (개선된 버전)
     """
     try:
-        print(f"[DEBUG] 계산 요청: {calculation_request}")
+        # calculation_request가 리스트 형태로 올 경우 문자열로 변환
+        if isinstance(calculation_request, list):
+            if calculation_request and isinstance(calculation_request[0], dict) and 'text' in calculation_request[0]:
+                actual_request = calculation_request[0]['text']
+            else:
+                actual_request = str(calculation_request[0]) if calculation_request else ""
+        else:
+            actual_request = str(calculation_request)
+        
+        print(f"[DEBUG] 계산 요청: {actual_request}")
+        print(f"[DEBUG] 원본 calculation_request 타입: {type(calculation_request)}")
         print(f"[DEBUG] 컨텍스트 데이터: {context_data}")
         
         # 1. 단순 수식 계산 지원
-        cleaned_request = calculation_request.replace(',', '').replace('만원', '0000').replace('억', '00000000').strip()
+        cleaned_request = actual_request.replace(',', '').replace('만원', '0000').replace('억', '00000000').strip()
         
         # 숫자와 기본 연산자로만 구성되었는지 확인
         if re.fullmatch(r'[\d\s+\-*/().]+', cleaned_request):
@@ -327,8 +382,10 @@ def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[st
                 results[tool_name] = db_query_tool(user_message, user_memo)
                 
             elif tool_name == "web_search":
-                # DB 쿼리 결과가 있으면 컨텍스트로 전달
-                context_data = {"db_query": results.get("db_query", {})} if "db_query" in results else None
+                # DB 쿼리 결과가 있으면 컨텍스트로 전달 (안전한 방식)
+                context_data = None
+                if "db_query" in results and isinstance(results["db_query"], dict):
+                    context_data = {"db_query": results["db_query"]}
                 results[tool_name] = web_search_tool(user_message, context_data)
                 
             elif tool_name == "calculator":
