@@ -43,7 +43,7 @@ tavily_search = TavilySearchResults(
 
 def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    웨딩 관련 업체 정보를 데이터베이스에서 조회 (개선된 버전)
+    웨딩 관련 업체 정보를 데이터베이스에서 조회 (개선된 버전 - 테이블별 컬럼 최적화)
     """
     try:
         # query_request가 리스트 형태로 올 경우 문자열로 변환
@@ -59,15 +59,50 @@ def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[
         print(f"[DEBUG] 원본 query_request 타입: {type(query_request)}")
         print(f"[DEBUG] 사용자 메모: {user_memo}")
         
-        # 사용자 메모에서 조건 추출
-        budget = user_memo.get("budget", "") if user_memo else ""
-        location = user_memo.get("preferred_location", "") if user_memo else ""
+        # 새로운 메모 구조에서 조건 추출
+        budget = ""
+        location = ""
+        
+        if user_memo:
+            # 예산 정보 추출 (새로운 구조: budget.total, budget.wedding_hall 등)
+            budget_info = user_memo.get("budget", {})
+            if isinstance(budget_info, dict):
+                # 총 예산이 있으면 우선 사용
+                if budget_info.get("total"):
+                    budget = budget_info.get("total")
+                # 특정 업체 예산이 있으면 해당 예산 사용
+                elif budget_info.get("wedding_hall") and "웨딩홀" in actual_query:
+                    budget = budget_info.get("wedding_hall")
+                elif budget_info.get("wedding_dress") and "드레스" in actual_query:
+                    budget = budget_info.get("wedding_dress")
+                elif budget_info.get("studio") and "스튜디오" in actual_query:
+                    budget = budget_info.get("studio")
+                elif budget_info.get("makeup") and "메이크업" in actual_query:
+                    budget = budget_info.get("makeup")
+            elif isinstance(budget_info, str):
+                # 기존 구조 호환성
+                budget = budget_info
+            
+            # 선호 지역 정보 추출 (새로운 구조: preferred_locations 배열)
+            preferred_locations = user_memo.get("preferred_locations", [])
+            if isinstance(preferred_locations, list) and preferred_locations:
+                location = preferred_locations[0]  # 첫 번째 선호 지역 사용
+            elif isinstance(preferred_locations, str):
+                # 기존 구조 호환성
+                location = preferred_locations
+            
+            # 주소 정보도 활용 (거주지가 선호 지역일 가능성)
+            if not location and user_memo.get("address"):
+                location = user_memo.get("address")
+        
+        print(f"[DEBUG] 추출된 예산: {budget}")
+        print(f"[DEBUG] 추출된 선호지역: {location}")
         
         # 테이블 정보 가져오기
         table_info = db.get_table_info()
         print(f"[DEBUG] 사용 가능한 테이블: {table_info[:500]}...")
         
-        # LLM을 사용해 자연어 쿼리를 SQL로 변환
+        # 개선된 SQL 생성 프롬프트 (실제 컬럼만 사용)
         sql_generation_prompt = f"""
 다음 테이블 정보를 참고해서 사용자 요청에 맞는 SQL 쿼리를 작성해주세요.
 
@@ -78,40 +113,51 @@ def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[
 사용자 예산: {budget}
 선호 지역: {location}
 
-쿼리 작성 규칙:
-1. 업체 유형 매핑:
-   - "드레스" 관련 요청 → wedding_dress 테이블
-   - "웨딩홀", "예식장" 관련 요청 → wedding_hall 테이블  
-   - "스튜디오", "촬영" 관련 요청 → studio 테이블
-   - "메이크업" 관련 요청 → makeup 테이블
+**중요: 실제 존재하는 컬럼만 사용**
+1. wedding_dress 테이블: "conm","wedding","photo","wedding+photo","fitting_fee","helper","min_fee","subway"
+2. wedding_hall 테이블: "conm","season(T/F)","peak(T/F)","hall_rental_fee","meal_expense","num_guarantors","min_fee","snapphoto","snapvideo","subway"
+3. makeup 테이블: "conm","manager(1)","manager(2)","vicedirector(1)","vicedirector(2)","director(1)","director(2)","min_fee","subway"
+4. studio 테이블: "conm","std_price","afternoon_price","allday_price","subway"
 
-2. 지역 필터링:
+**쿼리 작성 규칙:**
+1. 업체 유형 매핑:
+   - "드레스" 관련 요청 → wedding_dress 테이블, min_fee 사용
+   - "웨딩홀", "예식장" 관련 요청 → wedding_hall 테이블, min_fee 사용  
+   - "스튜디오", "촬영" 관련 요청 → studio 테이블, std_price 사용
+   - "메이크업" 관련 요청 → makeup 테이블, min_fee 사용
+
+2. 컬럼 선택 (존재하는 컬럼만):
+   - wedding_dress: SELECT conm, min_fee, subway FROM wedding_dress
+   - wedding_hall: SELECT conm, min_fee, subway FROM wedding_hall  
+   - makeup: SELECT conm, min_fee, subway FROM makeup
+   - studio: SELECT conm, std_price, subway FROM studio
+
+3. 지역 필터링:
    - 지역명이나 지하철역명이 언급되면 subway 컬럼에서 LIKE 검색
    - 예: "청담역" → WHERE subway LIKE '%청담%'
    - 예: "강남" → WHERE subway LIKE '%강남%'
 
-3. 예산 필터링:
-   - 예산 정보가 있으면 min_fee 컬럼 활용
+4. 예산 필터링:
+   - 예산 정보가 있으면 가격 컬럼 활용 (min_fee 또는 std_price)
    - 예산 범위 내의 업체만 조회
+   - 예산에서 숫자 추출: "5000만원" → 50000000
 
-4. 결과 제한:
+5. 결과 제한:
    - 요청에서 "3곳", "5개" 등 숫자가 언급되면 그 수만큼 LIMIT
    - 언급이 없으면 기본적으로 LIMIT 5
 
-5. 컬럼 선택:
-   - conm (업체명), min_fee (최소비용), subway (지하철역), address (주소) 등 유용한 정보 선택
-   - 모든 컬럼(*)보다는 필요한 컬럼만 선택
-
 6. 정렬:
-   - 예산이 있으면 min_fee 오름차순 정렬 (저렴한 순)
+   - 예산이 있으면 가격 컬럼 오름차순 정렬 (저렴한 순)
    - 예산이 없으면 conm 오름차순 정렬 (이름순)
+
+**중요: address, tel 컬럼은 존재하지 않으므로 절대 사용하지 마세요**
 
 예시:
 - "청담역 근처 드레스 3곳 추천해줘" 
-  → SELECT conm, min_fee, subway, address FROM wedding_dress WHERE subway LIKE '%청담%' ORDER BY min_fee ASC LIMIT 3
+  → SELECT conm, min_fee, subway FROM wedding_dress WHERE subway LIKE '%청담%' ORDER BY min_fee ASC LIMIT 3
 
-- "강남 웨딩홀 찾아줘"
-  → SELECT conm, min_fee, subway, address FROM wedding_hall WHERE subway LIKE '%강남%' ORDER BY min_fee ASC LIMIT 5
+- "강남 스튜디오 찾아줘"
+  → SELECT conm, std_price, subway FROM studio WHERE subway LIKE '%강남%' ORDER BY std_price ASC LIMIT 5
 
 SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
 """
@@ -139,7 +185,7 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
             print(f"[DEBUG] 조회된 행 수: {len(rows)}")
             print(f"[DEBUG] 컬럼명: {columns}")
             
-            # 결과를 딕셔너리 리스트로 변환
+            # 결과를 딕셔너리 리스트로 변환 (가격 포맷팅 개선)
             results = []
             for row in rows:
                 row_dict = {}
@@ -148,6 +194,12 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
                     # None 값 처리
                     if value is None:
                         value = "정보없음"
+                    # 가격 컬럼 포맷팅 (숫자인 경우 천 단위 콤마 추가)
+                    elif col in ['min_fee', 'std_price'] and isinstance(value, (int, float)):
+                        value = f"{int(value):,}원"
+                    # 전화번호 포맷팅
+                    elif col == 'tel' and value and value != "정보없음":
+                        value = str(value).strip()
                     row_dict[col] = value
                 results.append(row_dict)
             
@@ -171,7 +223,7 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
         if "no such table" in error_message.lower():
             error_message = "요청하신 업체 유형의 데이터를 찾을 수 없습니다."
         elif "no such column" in error_message.lower():
-            error_message = "데이터베이스 구조에 문제가 있습니다."
+            error_message = "데이터베이스 구조에 문제가 있습니다. 특히 스튜디오는 std_price 컬럼을 사용해야 합니다."
         elif "syntax error" in error_message.lower():
             error_message = "검색 조건을 처리하는 중 오류가 발생했습니다."
         else:
@@ -185,6 +237,7 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
             "query": query_request,
             "message": f"죄송합니다. {error_message} 다른 조건으로 다시 시도해보세요."
         }
+
 
 # 웹 검색 툴은 기존과 동일
 def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -263,7 +316,7 @@ def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> D
             "results": f"웹 검색 중 오류가 발생했습니다: {str(e)}"
         }
 
-# 계산기 툴도 개선
+# 계산기 툴도 기존과 동일
 def calculator_tool(calculation_request: str, context_data: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     계산 툴 - 단순 계산 + 웨딩 특화 계산 (개선된 버전)

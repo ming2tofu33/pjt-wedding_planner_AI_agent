@@ -1,45 +1,33 @@
 {
-  "budget": "1억",
-  "preferred_location": "잠실",
-  "wedding_date": "10월 25일",
-  "style": "트렌디하고 개성 있는",
-  "confirmed_vendors": {},
-  "notes": [
+  "name": "",
+  "birthdate": "",
+  "address": "",
+  "job": "",
+  "spouse": {
+    "name": "",
+    "birthdate": "",
+    "address": "",
+    "job": ""
+  },
+  "budget": {
+    "total": "",
+    "wedding_hall": "",
+    "wedding_dress": "",
+    "studio": "",
+    "makeup": "",
+    "etc": ""
+  },
+  "type": "",
+  "preferred_locations": [],
+  "wedding_date": "",
+  "preferences": [],
+  "confirmed_vendors": {
+    "wedding_hall": "더채플앳청담 채플홀"
+  },
+  "changes": [
     {
-      "timestamp": "2025-09-25T14:06:58.226549",
-      "update": "budget updated to: 5000만원"
-    },
-    {
-      "timestamp": "2025-09-25T14:06:58.226549",
-      "update": "preferred_location updated to: 압구정"
-    },
-    {
-      "timestamp": "2025-09-25T14:10:06.338337",
-      "update": "preferred_location updated to: 더채플앳청담 (채플홀)"
-    },
-    {
-      "timestamp": "2025-09-25T14:14:38.561718",
-      "update": "wedding_date updated to: 10월 25일"
-    },
-    {
-      "timestamp": "2025-09-25T14:41:26.377609",
-      "update": "budget updated to: 300만원"
-    },
-    {
-      "timestamp": "2025-09-25T14:44:26.688855",
-      "update": "budget updated to: 1억"
-    },
-    {
-      "timestamp": "2025-09-25T16:28:47.493733",
-      "update": "preferred_location updated to: 압구정"
-    },
-    {
-      "timestamp": "2025-09-25T16:56:18.749980",
-      "update": "style updated to: 트렌디하고 개성 있는"
-    },
-    {
-      "timestamp": "2025-09-26T12:58:07.535198",
-      "update": "preferred_location updated to: 잠실"
+      "timestamp": "2025-09-26T13:57:23.098354",
+      "update": "confirmed_vendors updated to: {'wedding_hall': '더채플앳청담 채플홀'}"
     }
   ]
 }
