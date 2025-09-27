@@ -28,7 +28,6 @@ def safe_get_content(message):
         return str(message.content)
     return ""
 
-# OpenAI 모델 초기화
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0.1,
@@ -43,7 +42,7 @@ tavily_search = TavilySearchResults(
 
 def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    웨딩 관련 업체 정보를 데이터베이스에서 조회 (새로운 메모 구조 반영)
+    웨딩 관련 업체 정보를 데이터베이스에서 조회 (개선된 버전 - 테이블별 컬럼 최적화)
     """
     try:
         # query_request가 리스트 형태로 올 경우 문자열로 변환
@@ -102,7 +101,7 @@ def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[
         table_info = db.get_table_info()
         print(f"[DEBUG] 사용 가능한 테이블: {table_info[:500]}...")
         
-        # LLM을 사용해 자연어 쿼리를 SQL로 변환 (개선된 프롬프트)
+        # 개선된 SQL 생성 프롬프트 (실제 컬럼만 사용)
         sql_generation_prompt = f"""
 다음 테이블 정보를 참고해서 사용자 요청에 맞는 SQL 쿼리를 작성해주세요.
 
@@ -113,41 +112,51 @@ def db_query_tool(query_request: str, user_memo: Dict[str, Any] = None) -> Dict[
 사용자 예산: {budget}
 선호 지역: {location}
 
-쿼리 작성 규칙:
-1. 업체 유형 매핑:
-   - "드레스" 관련 요청 → wedding_dress 테이블
-   - "웨딩홀", "예식장" 관련 요청 → wedding_hall 테이블  
-   - "스튜디오", "촬영" 관련 요청 → studio 테이블
-   - "메이크업" 관련 요청 → makeup 테이블
+**중요: 실제 존재하는 컬럼만 사용**
+1. wedding_dress 테이블: "conm","wedding","photo","wedding+photo","fitting_fee","helper","min_fee","subway"
+2. wedding_hall 테이블: "conm","season(T/F)","peak(T/F)","hall_rental_fee","meal_expense","num_guarantors","min_fee","snapphoto","snapvideo","subway"
+3. makeup 테이블: "conm","manager(1)","manager(2)","vicedirector(1)","vicedirector(2)","director(1)","director(2)","min_fee","subway"
+4. studio 테이블: "conm","std_price","afternoon_price","allday_price","subway"
 
-2. 지역 필터링:
+**쿼리 작성 규칙:**
+1. 업체 유형 매핑:
+   - "드레스" 관련 요청 → wedding_dress 테이블, min_fee 사용
+   - "웨딩홀", "예식장" 관련 요청 → wedding_hall 테이블, min_fee 사용  
+   - "스튜디오", "촬영" 관련 요청 → studio 테이블, std_price 사용
+   - "메이크업" 관련 요청 → makeup 테이블, min_fee 사용
+
+2. 컬럼 선택 (존재하는 컬럼만):
+   - wedding_dress: SELECT conm, min_fee, subway FROM wedding_dress
+   - wedding_hall: SELECT conm, min_fee, subway FROM wedding_hall  
+   - makeup: SELECT conm, min_fee, subway FROM makeup
+   - studio: SELECT conm, std_price, subway FROM studio
+
+3. 지역 필터링:
    - 지역명이나 지하철역명이 언급되면 subway 컬럼에서 LIKE 검색
    - 예: "청담역" → WHERE subway LIKE '%청담%'
    - 예: "강남" → WHERE subway LIKE '%강남%'
 
-3. 예산 필터링:
-   - 예산 정보가 있으면 min_fee 컬럼 활용
+4. 예산 필터링:
+   - 예산 정보가 있으면 가격 컬럼 활용 (min_fee 또는 std_price)
    - 예산 범위 내의 업체만 조회
    - 예산에서 숫자 추출: "5000만원" → 50000000
 
-4. 결과 제한:
+5. 결과 제한:
    - 요청에서 "3곳", "5개" 등 숫자가 언급되면 그 수만큼 LIMIT
    - 언급이 없으면 기본적으로 LIMIT 5
 
-5. 컬럼 선택:
-   - conm (업체명), min_fee (최소비용), subway (지하철역), address (주소) 등 유용한 정보 선택
-   - 모든 컬럼(*)보다는 필요한 컬럼만 선택
-
 6. 정렬:
-   - 예산이 있으면 min_fee 오름차순 정렬 (저렴한 순)
+   - 예산이 있으면 가격 컬럼 오름차순 정렬 (저렴한 순)
    - 예산이 없으면 conm 오름차순 정렬 (이름순)
+
+**중요: address, tel 컬럼은 존재하지 않으므로 절대 사용하지 마세요**
 
 예시:
 - "청담역 근처 드레스 3곳 추천해줘" 
-  → SELECT conm, min_fee, subway, address FROM wedding_dress WHERE subway LIKE '%청담%' ORDER BY min_fee ASC LIMIT 3
+  → SELECT conm, min_fee, subway FROM wedding_dress WHERE subway LIKE '%청담%' ORDER BY min_fee ASC LIMIT 3
 
-- "강남 웨딩홀 찾아줘"
-  → SELECT conm, min_fee, subway, address FROM wedding_hall WHERE subway LIKE '%강남%' ORDER BY min_fee ASC LIMIT 5
+- "강남 스튜디오 찾아줘"
+  → SELECT conm, std_price, subway FROM studio WHERE subway LIKE '%강남%' ORDER BY std_price ASC LIMIT 5
 
 SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
 """
@@ -175,7 +184,7 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
             print(f"[DEBUG] 조회된 행 수: {len(rows)}")
             print(f"[DEBUG] 컬럼명: {columns}")
             
-            # 결과를 딕셔너리 리스트로 변환
+            # 결과를 딕셔너리 리스트로 변환 (가격 포맷팅 개선)
             results = []
             for row in rows:
                 row_dict = {}
@@ -184,6 +193,12 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
                     # None 값 처리
                     if value is None:
                         value = "정보없음"
+                    # 가격 컬럼 포맷팅 (숫자인 경우 천 단위 콤마 추가)
+                    elif col in ['min_fee', 'std_price'] and isinstance(value, (int, float)):
+                        value = f"{int(value):,}원"
+                    # 전화번호 포맷팅
+                    elif col == 'tel' and value and value != "정보없음":
+                        value = str(value).strip()
                     row_dict[col] = value
                 results.append(row_dict)
             
@@ -207,7 +222,7 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
         if "no such table" in error_message.lower():
             error_message = "요청하신 업체 유형의 데이터를 찾을 수 없습니다."
         elif "no such column" in error_message.lower():
-            error_message = "데이터베이스 구조에 문제가 있습니다."
+            error_message = "데이터베이스 구조에 문제가 있습니다. 특히 스튜디오는 std_price 컬럼을 사용해야 합니다."
         elif "syntax error" in error_message.lower():
             error_message = "검색 조건을 처리하는 중 오류가 발생했습니다."
         else:
@@ -221,7 +236,7 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
             "query": query_request,
             "message": f"죄송합니다. {error_message} 다른 조건으로 다시 시도해보세요."
         }
-        
+
 
 # 웹 검색 툴은 기존과 동일
 def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -300,7 +315,7 @@ def web_search_tool(search_query: str, context_data: Dict[str, Any] = None) -> D
             "results": f"웹 검색 중 오류가 발생했습니다: {str(e)}"
         }
 
-# 계산기 툴도 개선
+# 계산기 툴도 기존과 동일
 def calculator_tool(calculation_request: str, context_data: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     계산 툴 - 단순 계산 + 웨딩 특화 계산 (개선된 버전)
@@ -440,4 +455,250 @@ def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[st
             results[tool_name] = {"status": "error", "error": str(e)}
     
     print(f"[DEBUG] 모든 툴 실행 완료: {list(results.keys())}")
+    return results
+
+
+# 스케줄 관리 툴
+def schedule_management_tool(schedule_request: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    일정 관리 도구 - DB와 연동하여 일정 추가/수정/삭제/조회
+    """
+    try:
+        # schedule_request 처리
+        if isinstance(schedule_request, list):
+            if schedule_request and isinstance(schedule_request[0], dict) and 'text' in schedule_request[0]:
+                actual_request = schedule_request[0]['text']
+            else:
+                actual_request = str(schedule_request[0]) if schedule_request else ""
+        else:
+            actual_request = str(schedule_request)
+        
+        print(f"[DEBUG] 일정 관리 요청: {actual_request}")
+        
+        # 사용자 ID
+        user_id = os.getenv('DEFAULT_USER_ID', 'mvp-test-user')
+        
+        # LLM으로 일정 요청 분석
+        analysis_prompt = f"""
+사용자 요청: {actual_request}
+현재 메모: {json.dumps(user_memo, ensure_ascii=False) if user_memo else "없음"}
+
+다음 중 어떤 작업인지 판단하고 필요한 정보를 추출해주세요:
+
+1. 일정 조회: "일정 확인", "스케줄 보여줘", "언제 뭐해"
+2. 일정 추가: "추가해줘", "등록해줘", "예약", "약속"
+3. 일정 수정: "변경", "미루기", "시간 바꿔"
+4. 일정 완료: "완료", "끝났어", "했어"
+5. 일정 취소: "취소", "삭제"
+
+응답 형식 (JSON):
+{{
+    "action": "view|add|update|complete|cancel",
+    "schedule_info": {{
+        "title": "일정 제목",
+        "date": "2025-03-15",
+        "time": "14:00",
+        "category": "venue|dress|photo|makeup|general",
+        "priority": "high|medium|low",
+        "description": "상세 내용"
+    }}
+}}
+
+일정 추가 예시:
+"내일 드레스 피팅 예약해줘" → {{"action": "add", "schedule_info": {{"title": "드레스 피팅", "date": "2025-01-16", "category": "dress"}}}}
+"이번주 일정 확인해줘" → {{"action": "view"}}
+
+JSON만 반환:
+"""
+        
+        analysis_response = llm.invoke([HumanMessage(content=analysis_prompt)])
+        schedule_data = json.loads(analysis_response.content.strip())
+        
+        action = schedule_data.get("action")
+        schedule_info = schedule_data.get("schedule_info", {})
+        
+        # DB 작업 실행
+        with engine.connect() as conn:
+            if action == "view":
+                result = conn.execute(sa.text("""
+                    SELECT id, title, scheduled_date, scheduled_time, status, category, priority, description
+                    FROM user_schedule 
+                    WHERE user_id = :user_id 
+                    ORDER BY scheduled_date ASC, scheduled_time ASC
+                """), {"user_id": user_id})
+                
+                schedules = result.fetchall()
+                formatted_result = format_schedule_list(schedules)
+                
+                return {
+                    "status": "success",
+                    "action": "view",
+                    "result": formatted_result,
+                    "count": len(schedules)
+                }
+                
+            elif action == "add":
+                conn.execute(sa.text("""
+                    INSERT INTO user_schedule (user_id, title, scheduled_date, scheduled_time, status, category, priority, description)
+                    VALUES (:user_id, :title, :date, :time, :status, :category, :priority, :description)
+                """), {
+                    "user_id": user_id,
+                    "title": schedule_info.get("title", "새 일정"),
+                    "date": schedule_info.get("date"),
+                    "time": schedule_info.get("time"),
+                    "status": "pending",
+                    "category": schedule_info.get("category", "general"),
+                    "priority": schedule_info.get("priority", "medium"),
+                    "description": schedule_info.get("description", "")
+                })
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "action": "add",
+                    "result": f"'{schedule_info.get('title')}' 일정이 {schedule_info.get('date')}에 추가되었습니다.",
+                    "schedule_info": schedule_info
+                }
+                
+            elif action == "complete":
+                # 제목으로 일정 찾아서 완료 처리
+                conn.execute(sa.text("""
+                    UPDATE user_schedule 
+                    SET status = 'completed', updated_at = NOW()
+                    WHERE user_id = :user_id AND title ILIKE :title AND status != 'completed'
+                """), {
+                    "user_id": user_id,
+                    "title": f"%{schedule_info.get('title', '')}%"
+                })
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "action": "complete",
+                    "result": f"'{schedule_info.get('title')}' 일정이 완료 처리되었습니다."
+                }
+                
+            elif action == "cancel":
+                conn.execute(sa.text("""
+                    UPDATE user_schedule 
+                    SET status = 'cancelled', updated_at = NOW()
+                    WHERE user_id = :user_id AND title ILIKE :title AND status NOT IN ('completed', 'cancelled')
+                """), {
+                    "user_id": user_id,
+                    "title": f"%{schedule_info.get('title', '')}%"
+                })
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "action": "cancel",
+                    "result": f"'{schedule_info.get('title')}' 일정이 취소되었습니다."
+                }
+        
+        return {
+            "status": "success",
+            "action": action,
+            "result": "일정 관리가 완료되었습니다."
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] 일정 관리 오류: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "result": f"일정 관리 중 오류가 발생했습니다: {str(e)}"
+        }
+
+def format_schedule_list(schedules) -> str:
+    """일정 목록을 보기 좋게 포매팅"""
+    if not schedules:
+        return "등록된 일정이 없습니다."
+    
+    result = "📅 **현재 일정:**\n\n"
+    
+    # 상태별로 그룹화
+    status_groups = {"pending": [], "in_progress": [], "completed": [], "cancelled": []}
+    
+    for schedule in schedules:
+        status = schedule[4]  # status 컬럼
+        status_groups[status].append(schedule)
+    
+    # 예정 일정
+    if status_groups["pending"]:
+        result += "**📋 예정:**\n"
+        for s in status_groups["pending"]:
+            category_icon = get_category_icon(s[5])  # category 컬럼
+            time_str = f" {s[3]}" if s[3] else ""  # scheduled_time
+            result += f"• {category_icon} {s[1]} - {s[2]}{time_str}\n"  # title, scheduled_date
+        result += "\n"
+    
+    # 진행중 일정
+    if status_groups["in_progress"]:
+        result += "**⏳ 진행중:**\n"
+        for s in status_groups["in_progress"]:
+            category_icon = get_category_icon(s[5])
+            time_str = f" {s[3]}" if s[3] else ""
+            result += f"• {category_icon} {s[1]} - {s[2]}{time_str}\n"
+        result += "\n"
+    
+    # 완료 일정
+    if status_groups["completed"]:
+        result += "**✅ 완료:**\n"
+        for s in status_groups["completed"]:
+            category_icon = get_category_icon(s[5])
+            result += f"• {category_icon} {s[1]} - {s[2]}\n"
+    
+    return result
+
+def get_category_icon(category: str) -> str:
+    """카테고리별 아이콘 반환"""
+    icons = {
+        "venue": "🏛️",
+        "dress": "👗", 
+        "photo": "📸",
+        "makeup": "💄",
+        "general": "📝"
+    }
+    return icons.get(category, "📝")
+
+# execute_tools 함수에 추가
+def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    필요한 툴들을 실행하는 헬퍼 함수 (일정 관리 툴 추가)
+    """
+    results = {}
+    
+    print(f"[DEBUG] 실행할 툴들: {tools_needed}")
+    
+    for tool_name in tools_needed:
+        try:
+            print(f"[DEBUG] {tool_name} 툴 실행 시작")
+            
+            if tool_name == "db_query":
+                results[tool_name] = db_query_tool(user_message, user_memo)
+                
+            elif tool_name == "web_search":
+                context_data = None
+                if "db_query" in results and isinstance(results["db_query"], dict):
+                    context_data = {"db_query": results["db_query"]}
+                results[tool_name] = web_search_tool(user_message, context_data)
+                
+            elif tool_name == "calculator":
+                results[tool_name] = calculator_tool(user_message, user_memo)
+                
+            elif tool_name == "memo_update":
+                results[tool_name] = memo_update_tool(json.dumps(user_memo) if user_memo else "{}")
+                
+            elif tool_name == "schedule_management":  # 새로 추가
+                results[tool_name] = schedule_management_tool(user_message, user_memo)
+                
+            else:
+                results[tool_name] = {"status": "error", "error": f"Unknown tool: {tool_name}"}
+                
+            print(f"[DEBUG] {tool_name} 툴 실행 완료: {results[tool_name].get('status', 'unknown')}")
+                
+        except Exception as e:
+            print(f"[ERROR] {tool_name} 툴 실행 중 오류: {e}")
+            results[tool_name] = {"status": "error", "error": str(e)}
+    
     return results
