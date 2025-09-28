@@ -8,7 +8,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
 from db import db, engine
-import sqlalchemy as sa
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -176,34 +176,43 @@ SQL 쿼리만 반환하세요 (설명이나 백틱 없이):
         print(f"[DEBUG] 생성된 SQL: {sql_query}")
         
         # SQL 실행 (안전한 방법으로)
-        with engine.connect() as conn:
-            # 트랜잭션 없이 읽기 전용으로 실행
-            result = conn.execute(sa.text(sql_query))
-            rows = result.fetchall()
-            columns = list(result.keys())
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST'),
+            port=os.getenv('POSTGRES_PORT', '5432'), 
+            database=os.getenv('POSTGRES_DB'),
+            user=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD')
+        )
+        
+        with conn.cursor() as cur:
+            cur.execute(sql_query)
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+        
+        conn.close()
+        
+        print(f"[DEBUG] 조회된 행 수: {len(rows)}")
+        print(f"[DEBUG] 컬럼명: {columns}")
             
-            print(f"[DEBUG] 조회된 행 수: {len(rows)}")
-            print(f"[DEBUG] 컬럼명: {columns}")
-            
-            # 결과를 딕셔너리 리스트로 변환 (가격 포맷팅 개선)
-            results = []
-            for row in rows:
-                row_dict = {}
-                for i, col in enumerate(columns):
-                    value = row[i]
-                    # None 값 처리
-                    if value is None:
-                        value = "정보없음"
-                    # 가격 컬럼 포맷팅 (숫자인 경우 천 단위 콤마 추가)
-                    elif col in ['min_fee', 'std_price'] and isinstance(value, (int, float)):
-                        value = f"{int(value):,}원"
-                    # 전화번호 포맷팅
-                    elif col == 'tel' and value and value != "정보없음":
-                        value = str(value).strip()
-                    row_dict[col] = value
-                results.append(row_dict)
-            
-            print(f"[DEBUG] 변환된 결과: {results}")
+        # 결과를 딕셔너리 리스트로 변환 (가격 포맷팅 개선)
+        results = []
+        for row in rows:
+            row_dict = {}
+            for i, col in enumerate(columns):
+                value = row[i]
+                # None 값 처리
+                if value is None:
+                    value = "정보없음"
+                # 가격 컬럼 포맷팅 (숫자인 경우 천 단위 콤마 추가)
+                elif col in ['min_fee', 'std_price'] and isinstance(value, (int, float)):
+                    value = f"{int(value):,}원"
+                # 전화번호 포맷팅
+                elif col == 'tel' and value and value != "정보없음":
+                    value = str(value).strip()
+                row_dict[col] = value
+            results.append(row_dict)
+        
+        print(f"[DEBUG] 변환된 결과: {results}")
         
         # 성공적인 응답 반환
         return {
@@ -532,9 +541,9 @@ def user_db_update_tool(action: str, schedule_data: Dict[str, Any] = None, user_
         print(f"[DEBUG] 일정 데이터: {schedule_data}")
         print(f"[DEBUG] 사용자 ID: {user_id}")
         
-        # DB 연결 확인
-        from db import engine
-        import sqlalchemy as sa
+        # 이 두 줄 삭제
+        # from db import engine
+        # import sqlalchemy as sa
         
         if action == "list":
             # 일정 목록 조회
@@ -582,22 +591,26 @@ def user_db_update_tool(action: str, schedule_data: Dict[str, Any] = None, user_
 def _get_user_schedules(user_id: str, limit: int = 20) -> Dict[str, Any]:
     """사용자 일정 목록 조회"""
     try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        with engine.connect() as conn:
-            query = sa.text("""
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST'),
+            port=os.getenv('POSTGRES_PORT', '5432'), 
+            database=os.getenv('POSTGRES_DB'),
+            user=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD')
+        )
+
+        with conn.cursor() as cur:
+            cur.execute("""
                 SELECT id, title, scheduled_date, scheduled_time, status, 
                        category, description, priority, created_at, updated_at
                 FROM user_schedule 
-                WHERE user_id = :user_id 
+                WHERE user_id = %s 
                 ORDER BY scheduled_date ASC, scheduled_time ASC
-                LIMIT :limit
-            """)
+                LIMIT %s
+            """, (user_id, limit))
             
-            result = conn.execute(query, {"user_id": user_id, "limit": limit})
-            rows = result.fetchall()
-            columns = list(result.keys())
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]  # 이 부분 수정
             
             schedules = []
             for row in rows:
@@ -613,75 +626,65 @@ def _get_user_schedules(user_id: str, limit: int = 20) -> Dict[str, Any]:
                         value = value.strftime('%Y-%m-%d %H:%M:%S')
                     schedule[col] = value
                 schedules.append(schedule)
-            
-            return {
-                "status": "success",
-                "schedules": schedules,
-                "count": len(schedules),
-                "message": f"{len(schedules)}개의 일정을 찾았습니다."
-            }
+        
+        conn.close()  # 연결 종료 추가
+        
+        return {
+            "status": "success",
+            "schedules": schedules,
+            "count": len(schedules),
+            "message": f"{len(schedules)}개의 일정을 찾았습니다."
+        }
             
     except Exception as e:
         print(f"[ERROR] 일정 조회 오류: {e}")
+        if 'conn' in locals():
+            conn.close()
         return {"status": "error", "error": str(e)}
 
 def _add_user_schedule(user_id: str, schedule_data: Dict[str, Any]) -> Dict[str, Any]:
-    """새 일정 추가"""
     try:
-        from db import engine
-        import sqlalchemy as sa
+        # 기존의 SQLAlchemy 방식 대신 psycopg2 사용
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST'),
+            port=os.getenv('POSTGRES_PORT', '5432'), 
+            database=os.getenv('POSTGRES_DB'),
+            user=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD')
+        )
         
-        # 필수 필드 검증
-        title = schedule_data.get("title", "").strip()
+        title = schedule_data.get("title", "").strip().strip('"')
         if not title:
             return {"status": "error", "error": "일정 제목은 필수입니다."}
         
-        # 날짜/시간 처리
-        scheduled_date = schedule_data.get("scheduled_date")
-        scheduled_time = schedule_data.get("scheduled_time")
-        
-        # 날짜 문자열을 date 객체로 변환
-        if isinstance(scheduled_date, str):
-            try:
-                scheduled_date = datetime.strptime(scheduled_date, '%Y-%m-%d').date()
-            except ValueError:
-                scheduled_date = None
-        
-        # 시간 문자열을 time 객체로 변환
-        if isinstance(scheduled_time, str):
-            try:
-                scheduled_time = datetime.strptime(scheduled_time, '%H:%M').time()
-            except ValueError:
-                scheduled_time = None
-        
-        with engine.connect() as conn:
-            query = sa.text("""
+        with conn.cursor() as cur:
+            cur.execute("""
                 INSERT INTO user_schedule 
                 (user_id, title, scheduled_date, scheduled_time, status, category, description, priority)
-                VALUES (:user_id, :title, :scheduled_date, :scheduled_time, :status, :category, :description, :priority)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """)
+            """, (
+                user_id,
+                title,
+                schedule_data.get("scheduled_date"),
+                schedule_data.get("scheduled_time"),
+                schedule_data.get("status", "pending"),
+                schedule_data.get("category", "general"),
+                schedule_data.get("description", ""),
+                schedule_data.get("priority", "medium")
+            ))
             
-            result = conn.execute(query, {
-                "user_id": user_id,
-                "title": title,
-                "scheduled_date": scheduled_date,
-                "scheduled_time": scheduled_time,
-                "status": schedule_data.get("status", "pending"),
-                "category": schedule_data.get("category", "general"),
-                "description": schedule_data.get("description", ""),
-                "priority": schedule_data.get("priority", "medium")
-            })
-            
+            new_id = cur.fetchone()[0]
             conn.commit()
-            new_id = result.fetchone()[0]
             
-            return {
-                "status": "success",
-                "id": new_id,
-                "message": f"일정 '{title}'이 추가되었습니다."
-            }
-            
+        conn.close()
+        
+        return {
+            "status": "success",
+            "id": new_id,
+            "message": f"일정 '{title}'이 추가되었습니다."
+        }
+        
     except Exception as e:
         print(f"[ERROR] 일정 추가 오류: {e}")
         return {"status": "error", "error": str(e)}
@@ -689,8 +692,13 @@ def _add_user_schedule(user_id: str, schedule_data: Dict[str, Any]) -> Dict[str,
 def _update_user_schedule(schedule_data: Dict[str, Any]) -> Dict[str, Any]:
     """기존 일정 수정"""
     try:
-        from db import engine
-        import sqlalchemy as sa
+        conn = psycopg2.connect(
+        host=os.getenv('POSTGRES_HOST'),
+        port=os.getenv('POSTGRES_PORT', '5432'), 
+        database=os.getenv('POSTGRES_DB'),
+        user=os.getenv('POSTGRES_USER'),
+        password=os.getenv('POSTGRES_PASSWORD')
+        )
         
         schedule_id = schedule_data.get("id")
         if not schedule_id:
@@ -725,15 +733,20 @@ def _update_user_schedule(schedule_data: Dict[str, Any]) -> Dict[str, Any]:
         # updated_at 자동 업데이트
         update_fields.append("updated_at = NOW()")
         
-        with engine.connect() as conn:
-            query = sa.text(f"""
+        with conn.cursor() as cur:
+            query = f"""
                 UPDATE user_schedule 
                 SET {', '.join(update_fields)}
-                WHERE id = :id
+                WHERE id = %s
                 RETURNING title
-            """)
+            """
             
-            result = conn.execute(query, params)
+            # 파라미터 순서 조정 필요
+            values = [params[field.split(' = ')[0]] for field in update_fields if ' = ' in field]
+            values.append(schedule_id)
+            
+            cur.execute(query, values)
+            result = cur.fetchone()
             conn.commit()
             
             updated_row = result.fetchone()
@@ -753,30 +766,21 @@ def _update_user_schedule(schedule_data: Dict[str, Any]) -> Dict[str, Any]:
 def _delete_user_schedule(schedule_id: int) -> Dict[str, Any]:
     """일정 삭제"""
     try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        with engine.connect() as conn:
-            # 먼저 일정 제목 조회
-            select_query = sa.text("SELECT title FROM user_schedule WHERE id = :id")
-            select_result = conn.execute(select_query, {"id": schedule_id})
-            row = select_result.fetchone()
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST'),
+            port=os.getenv('POSTGRES_PORT', '5432'), 
+            database=os.getenv('POSTGRES_DB'),
+            user=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD')
+        )
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT title FROM user_schedule WHERE id = %s", (schedule_id,))
+            row = cur.fetchone()
             
-            if not row:
-                return {"status": "error", "error": "일정을 찾을 수 없습니다."}
-            
-            title = row[0]
-            
-            # 일정 삭제
-            delete_query = sa.text("DELETE FROM user_schedule WHERE id = :id")
-            conn.execute(delete_query, {"id": schedule_id})
+            cur.execute("DELETE FROM user_schedule WHERE id = %s", (schedule_id,))
             conn.commit()
-            
-            return {
-                "status": "success",
-                "message": f"일정 '{title}'이 삭제되었습니다."
-            }
-            
+                    
     except Exception as e:
         print(f"[ERROR] 일정 삭제 오류: {e}")
         return {"status": "error", "error": str(e)}
@@ -784,18 +788,23 @@ def _delete_user_schedule(schedule_id: int) -> Dict[str, Any]:
 def _complete_user_schedule(schedule_id: int) -> Dict[str, Any]:
     """일정 완료 처리"""
     try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        with engine.connect() as conn:
-            query = sa.text("""
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST'),
+            port=os.getenv('POSTGRES_PORT', '5432'), 
+            database=os.getenv('POSTGRES_DB'),
+            user=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD')
+        )
+
+        with conn.cursor() as cur:
+            cur.execute("""
                 UPDATE user_schedule 
                 SET status = 'completed', updated_at = NOW()
-                WHERE id = :id
+                WHERE id = %s
                 RETURNING title
-            """)
+            """, (schedule_id,))
             
-            result = conn.execute(query, {"id": schedule_id})
+            result = cur.fetchone()
             conn.commit()
             
             updated_row = result.fetchone()
