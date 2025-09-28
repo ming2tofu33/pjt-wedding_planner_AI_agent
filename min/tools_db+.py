@@ -2,7 +2,6 @@ import os
 import json
 import re
 from typing import Dict, Any, List
-from datetime import datetime, date, time
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -419,7 +418,7 @@ def memo_update_tool(update_data: str) -> Dict[str, Any]:
 # 툴 실행 헬퍼 함수 (개선된 버전 - 툴 간 데이터 전달 지원)
 def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    필요한 툴들을 실행하는 헬퍼 함수 (툴 간 데이터 전달 개선 + user_db_update 추가)
+    필요한 툴들을 실행하는 헬퍼 함수 (툴 간 데이터 전달 개선)
     """
     results = {}
     
@@ -446,13 +445,6 @@ def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[st
                 
             elif tool_name == "memo_update":
                 results[tool_name] = memo_update_tool(json.dumps(user_memo) if user_memo else "{}")
-                
-            elif tool_name == "user_db_update":
-                # 사용자 일정 관리 툴 추가
-                # 메시지에서 액션과 데이터 파싱
-                action, schedule_data = _parse_schedule_request(user_message)
-                results[tool_name] = user_db_update_tool(action, schedule_data, user_memo)
-                
             else:
                 results[tool_name] = {"status": "error", "error": f"Unknown tool: {tool_name}"}
                 
@@ -465,377 +457,248 @@ def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[st
     print(f"[DEBUG] 모든 툴 실행 완료: {list(results.keys())}")
     return results
 
-def _parse_schedule_request(user_message: str) -> tuple[str, Dict[str, Any]]:
-    """
-    사용자 메시지에서 일정 관련 액션과 데이터를 파싱
-    """
-    message_lower = user_message.lower()
-    
-    # 일정 조회
-    if any(word in message_lower for word in ["일정", "스케줄", "계획", "보여줘", "확인"]):
-        if any(word in message_lower for word in ["목록", "전체", "모든", "보여줘"]):
-            return "list", {}
-    
-    # 일정 추가
-    elif any(word in message_lower for word in ["추가", "등록", "만들어", "생성", "예약"]):
-        # 간단한 일정 데이터 추출 시도
-        schedule_data = {"title": user_message}
-        
-        # 날짜 패턴 찾기 (YYYY-MM-DD, MM/DD, 내일, 다음주 등)
-        import re
-        date_patterns = [
-            r'\d{4}-\d{2}-\d{2}',  # 2024-12-25
-            r'\d{1,2}/\d{1,2}',    # 12/25
-            r'\d{1,2}월\s*\d{1,2}일'  # 12월 25일
-        ]
-        
-        for pattern in date_patterns:
-            match = re.search(pattern, user_message)
-            if match:
-                schedule_data["scheduled_date_raw"] = match.group()
-                break
-        
-        return "add", schedule_data
-    
-    # 일정 완료
-    elif any(word in message_lower for word in ["완료", "끝", "done", "완성"]):
-        return "complete", {"message": user_message}
-    
-    # 일정 수정
-    elif any(word in message_lower for word in ["수정", "변경", "업데이트"]):
-        return "update", {"message": user_message}
-    
-    # 일정 삭제
-    elif any(word in message_lower for word in ["삭제", "제거", "취소"]):
-        return "delete", {"message": user_message}
-    
-    # 기본값: 목록 조회
-    return "list", {}
 
-
-def user_db_update_tool(action: str, schedule_data: Dict[str, Any] = None, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
+# 스케줄 관리 툴
+def schedule_management_tool(schedule_request: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    사용자 일정 관리 도구 - user_schedule 테이블과 연동
-    
-    Actions:
-    - 'list': 일정 목록 조회
-    - 'add': 새 일정 추가
-    - 'update': 기존 일정 수정
-    - 'delete': 일정 삭제
-    - 'complete': 일정 완료 처리
-    - 'sync': 메모와 DB 동기화
+    일정 관리 도구 - DB와 연동하여 일정 추가/수정/삭제/조회
     """
     try:
+        # schedule_request 처리
+        if isinstance(schedule_request, list):
+            if schedule_request and isinstance(schedule_request[0], dict) and 'text' in schedule_request[0]:
+                actual_request = schedule_request[0]['text']
+            else:
+                actual_request = str(schedule_request[0]) if schedule_request else ""
+        else:
+            actual_request = str(schedule_request)
+        
+        print(f"[DEBUG] 일정 관리 요청: {actual_request}")
+        
+        # 사용자 ID
         user_id = os.getenv('DEFAULT_USER_ID', 'mvp-test-user')
         
-        print(f"[DEBUG] user_db_update_tool 실행 - 액션: {action}")
-        print(f"[DEBUG] 일정 데이터: {schedule_data}")
-        print(f"[DEBUG] 사용자 ID: {user_id}")
+        # LLM으로 일정 요청 분석
+        analysis_prompt = f"""
+사용자 요청: {actual_request}
+현재 메모: {json.dumps(user_memo, ensure_ascii=False) if user_memo else "없음"}
+
+다음 중 어떤 작업인지 판단하고 필요한 정보를 추출해주세요:
+
+1. 일정 조회: "일정 확인", "스케줄 보여줘", "언제 뭐해"
+2. 일정 추가: "추가해줘", "등록해줘", "예약", "약속"
+3. 일정 수정: "변경", "미루기", "시간 바꿔"
+4. 일정 완료: "완료", "끝났어", "했어"
+5. 일정 취소: "취소", "삭제"
+
+응답 형식 (JSON):
+{{
+    "action": "view|add|update|complete|cancel",
+    "schedule_info": {{
+        "title": "일정 제목",
+        "date": "2025-03-15",
+        "time": "14:00",
+        "category": "venue|dress|photo|makeup|general",
+        "priority": "high|medium|low",
+        "description": "상세 내용"
+    }}
+}}
+
+일정 추가 예시:
+"내일 드레스 피팅 예약해줘" → {{"action": "add", "schedule_info": {{"title": "드레스 피팅", "date": "2025-01-16", "category": "dress"}}}}
+"이번주 일정 확인해줘" → {{"action": "view"}}
+
+JSON만 반환:
+"""
         
-        # DB 연결 확인
-        from db import engine
-        import sqlalchemy as sa
+        analysis_response = llm.invoke([HumanMessage(content=analysis_prompt)])
+        schedule_data = json.loads(analysis_response.content.strip())
         
-        if action == "list":
-            # 일정 목록 조회
-            return _get_user_schedules(user_id)
-            
-        elif action == "add":
-            # 새 일정 추가
-            if not schedule_data:
-                return {"status": "error", "error": "일정 데이터가 필요합니다."}
-            return _add_user_schedule(user_id, schedule_data)
-            
-        elif action == "update":
-            # 일정 수정
-            if not schedule_data or not schedule_data.get("id"):
-                return {"status": "error", "error": "수정할 일정 ID가 필요합니다."}
-            return _update_user_schedule(schedule_data)
-            
-        elif action == "delete":
-            # 일정 삭제
-            if not schedule_data or not schedule_data.get("id"):
-                return {"status": "error", "error": "삭제할 일정 ID가 필요합니다."}
-            return _delete_user_schedule(schedule_data["id"])
-            
-        elif action == "complete":
-            # 일정 완료 처리
-            if not schedule_data or not schedule_data.get("id"):
-                return {"status": "error", "error": "완료할 일정 ID가 필요합니다."}
-            return _complete_user_schedule(schedule_data["id"])
-            
-        elif action == "sync":
-            # 메모와 DB 동기화
-            return _sync_memo_with_db(user_id, user_memo)
-            
-        else:
-            return {"status": "error", "error": f"지원하지 않는 액션: {action}"}
-            
+        action = schedule_data.get("action")
+        schedule_info = schedule_data.get("schedule_info", {})
+        
+        # DB 작업 실행
+        with engine.connect() as conn:
+            if action == "view":
+                result = conn.execute(sa.text("""
+                    SELECT id, title, scheduled_date, scheduled_time, status, category, priority, description
+                    FROM user_schedule 
+                    WHERE user_id = :user_id 
+                    ORDER BY scheduled_date ASC, scheduled_time ASC
+                """), {"user_id": user_id})
+                
+                schedules = result.fetchall()
+                formatted_result = format_schedule_list(schedules)
+                
+                return {
+                    "status": "success",
+                    "action": "view",
+                    "result": formatted_result,
+                    "count": len(schedules)
+                }
+                
+            elif action == "add":
+                conn.execute(sa.text("""
+                    INSERT INTO user_schedule (user_id, title, scheduled_date, scheduled_time, status, category, priority, description)
+                    VALUES (:user_id, :title, :date, :time, :status, :category, :priority, :description)
+                """), {
+                    "user_id": user_id,
+                    "title": schedule_info.get("title", "새 일정"),
+                    "date": schedule_info.get("date"),
+                    "time": schedule_info.get("time"),
+                    "status": "pending",
+                    "category": schedule_info.get("category", "general"),
+                    "priority": schedule_info.get("priority", "medium"),
+                    "description": schedule_info.get("description", "")
+                })
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "action": "add",
+                    "result": f"'{schedule_info.get('title')}' 일정이 {schedule_info.get('date')}에 추가되었습니다.",
+                    "schedule_info": schedule_info
+                }
+                
+            elif action == "complete":
+                # 제목으로 일정 찾아서 완료 처리
+                conn.execute(sa.text("""
+                    UPDATE user_schedule 
+                    SET status = 'completed', updated_at = NOW()
+                    WHERE user_id = :user_id AND title ILIKE :title AND status != 'completed'
+                """), {
+                    "user_id": user_id,
+                    "title": f"%{schedule_info.get('title', '')}%"
+                })
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "action": "complete",
+                    "result": f"'{schedule_info.get('title')}' 일정이 완료 처리되었습니다."
+                }
+                
+            elif action == "cancel":
+                conn.execute(sa.text("""
+                    UPDATE user_schedule 
+                    SET status = 'cancelled', updated_at = NOW()
+                    WHERE user_id = :user_id AND title ILIKE :title AND status NOT IN ('completed', 'cancelled')
+                """), {
+                    "user_id": user_id,
+                    "title": f"%{schedule_info.get('title', '')}%"
+                })
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "action": "cancel",
+                    "result": f"'{schedule_info.get('title')}' 일정이 취소되었습니다."
+                }
+        
+        return {
+            "status": "success",
+            "action": action,
+            "result": "일정 관리가 완료되었습니다."
+        }
+        
     except Exception as e:
-        print(f"[ERROR] user_db_update_tool 오류: {e}")
+        print(f"[ERROR] 일정 관리 오류: {e}")
         return {
             "status": "error",
             "error": str(e),
-            "message": "일정 관리 중 오류가 발생했습니다."
+            "result": f"일정 관리 중 오류가 발생했습니다: {str(e)}"
         }
 
-def _get_user_schedules(user_id: str, limit: int = 20) -> Dict[str, Any]:
-    """사용자 일정 목록 조회"""
-    try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        with engine.connect() as conn:
-            query = sa.text("""
-                SELECT id, title, scheduled_date, scheduled_time, status, 
-                       category, description, priority, created_at, updated_at
-                FROM user_schedule 
-                WHERE user_id = :user_id 
-                ORDER BY scheduled_date ASC, scheduled_time ASC
-                LIMIT :limit
-            """)
-            
-            result = conn.execute(query, {"user_id": user_id, "limit": limit})
-            rows = result.fetchall()
-            columns = list(result.keys())
-            
-            schedules = []
-            for row in rows:
-                schedule = {}
-                for i, col in enumerate(columns):
-                    value = row[i]
-                    # 날짜/시간 포맷팅
-                    if col in ['scheduled_date'] and value:
-                        value = value.strftime('%Y-%m-%d')
-                    elif col in ['scheduled_time'] and value:
-                        value = value.strftime('%H:%M')
-                    elif col in ['created_at', 'updated_at'] and value:
-                        value = value.strftime('%Y-%m-%d %H:%M:%S')
-                    schedule[col] = value
-                schedules.append(schedule)
-            
-            return {
-                "status": "success",
-                "schedules": schedules,
-                "count": len(schedules),
-                "message": f"{len(schedules)}개의 일정을 찾았습니다."
-            }
-            
-    except Exception as e:
-        print(f"[ERROR] 일정 조회 오류: {e}")
-        return {"status": "error", "error": str(e)}
+def format_schedule_list(schedules) -> str:
+    """일정 목록을 보기 좋게 포매팅"""
+    if not schedules:
+        return "등록된 일정이 없습니다."
+    
+    result = "📅 **현재 일정:**\n\n"
+    
+    # 상태별로 그룹화
+    status_groups = {"pending": [], "in_progress": [], "completed": [], "cancelled": []}
+    
+    for schedule in schedules:
+        status = schedule[4]  # status 컬럼
+        status_groups[status].append(schedule)
+    
+    # 예정 일정
+    if status_groups["pending"]:
+        result += "**📋 예정:**\n"
+        for s in status_groups["pending"]:
+            category_icon = get_category_icon(s[5])  # category 컬럼
+            time_str = f" {s[3]}" if s[3] else ""  # scheduled_time
+            result += f"• {category_icon} {s[1]} - {s[2]}{time_str}\n"  # title, scheduled_date
+        result += "\n"
+    
+    # 진행중 일정
+    if status_groups["in_progress"]:
+        result += "**⏳ 진행중:**\n"
+        for s in status_groups["in_progress"]:
+            category_icon = get_category_icon(s[5])
+            time_str = f" {s[3]}" if s[3] else ""
+            result += f"• {category_icon} {s[1]} - {s[2]}{time_str}\n"
+        result += "\n"
+    
+    # 완료 일정
+    if status_groups["completed"]:
+        result += "**✅ 완료:**\n"
+        for s in status_groups["completed"]:
+            category_icon = get_category_icon(s[5])
+            result += f"• {category_icon} {s[1]} - {s[2]}\n"
+    
+    return result
 
-def _add_user_schedule(user_id: str, schedule_data: Dict[str, Any]) -> Dict[str, Any]:
-    """새 일정 추가"""
-    try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        # 필수 필드 검증
-        title = schedule_data.get("title", "").strip()
-        if not title:
-            return {"status": "error", "error": "일정 제목은 필수입니다."}
-        
-        # 날짜/시간 처리
-        scheduled_date = schedule_data.get("scheduled_date")
-        scheduled_time = schedule_data.get("scheduled_time")
-        
-        # 날짜 문자열을 date 객체로 변환
-        if isinstance(scheduled_date, str):
-            try:
-                scheduled_date = datetime.strptime(scheduled_date, '%Y-%m-%d').date()
-            except ValueError:
-                scheduled_date = None
-        
-        # 시간 문자열을 time 객체로 변환
-        if isinstance(scheduled_time, str):
-            try:
-                scheduled_time = datetime.strptime(scheduled_time, '%H:%M').time()
-            except ValueError:
-                scheduled_time = None
-        
-        with engine.connect() as conn:
-            query = sa.text("""
-                INSERT INTO user_schedule 
-                (user_id, title, scheduled_date, scheduled_time, status, category, description, priority)
-                VALUES (:user_id, :title, :scheduled_date, :scheduled_time, :status, :category, :description, :priority)
-                RETURNING id
-            """)
-            
-            result = conn.execute(query, {
-                "user_id": user_id,
-                "title": title,
-                "scheduled_date": scheduled_date,
-                "scheduled_time": scheduled_time,
-                "status": schedule_data.get("status", "pending"),
-                "category": schedule_data.get("category", "general"),
-                "description": schedule_data.get("description", ""),
-                "priority": schedule_data.get("priority", "medium")
-            })
-            
-            conn.commit()
-            new_id = result.fetchone()[0]
-            
-            return {
-                "status": "success",
-                "id": new_id,
-                "message": f"일정 '{title}'이 추가되었습니다."
-            }
-            
-    except Exception as e:
-        print(f"[ERROR] 일정 추가 오류: {e}")
-        return {"status": "error", "error": str(e)}
+def get_category_icon(category: str) -> str:
+    """카테고리별 아이콘 반환"""
+    icons = {
+        "venue": "🏛️",
+        "dress": "👗", 
+        "photo": "📸",
+        "makeup": "💄",
+        "general": "📝"
+    }
+    return icons.get(category, "📝")
 
-def _update_user_schedule(schedule_data: Dict[str, Any]) -> Dict[str, Any]:
-    """기존 일정 수정"""
-    try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        schedule_id = schedule_data.get("id")
-        if not schedule_id:
-            return {"status": "error", "error": "일정 ID가 필요합니다."}
-        
-        # 업데이트할 필드들 동적으로 구성
-        update_fields = []
-        params = {"id": schedule_id}
-        
-        for field in ["title", "scheduled_date", "scheduled_time", "status", "category", "description", "priority"]:
-            if field in schedule_data:
-                value = schedule_data[field]
-                
-                # 날짜/시간 처리
-                if field == "scheduled_date" and isinstance(value, str):
-                    try:
-                        value = datetime.strptime(value, '%Y-%m-%d').date()
-                    except ValueError:
-                        continue
-                elif field == "scheduled_time" and isinstance(value, str):
-                    try:
-                        value = datetime.strptime(value, '%H:%M').time()
-                    except ValueError:
-                        continue
-                
-                update_fields.append(f"{field} = :{field}")
-                params[field] = value
-        
-        if not update_fields:
-            return {"status": "error", "error": "업데이트할 필드가 없습니다."}
-        
-        # updated_at 자동 업데이트
-        update_fields.append("updated_at = NOW()")
-        
-        with engine.connect() as conn:
-            query = sa.text(f"""
-                UPDATE user_schedule 
-                SET {', '.join(update_fields)}
-                WHERE id = :id
-                RETURNING title
-            """)
+# execute_tools 함수에 추가
+def execute_tools(tools_needed: List[str], user_message: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    필요한 툴들을 실행하는 헬퍼 함수 (일정 관리 툴 추가)
+    """
+    results = {}
+    
+    print(f"[DEBUG] 실행할 툴들: {tools_needed}")
+    
+    for tool_name in tools_needed:
+        try:
+            print(f"[DEBUG] {tool_name} 툴 실행 시작")
             
-            result = conn.execute(query, params)
-            conn.commit()
-            
-            updated_row = result.fetchone()
-            if updated_row:
-                title = updated_row[0]
-                return {
-                    "status": "success",
-                    "message": f"일정 '{title}'이 수정되었습니다."
-                }
+            if tool_name == "db_query":
+                results[tool_name] = db_query_tool(user_message, user_memo)
+                
+            elif tool_name == "web_search":
+                context_data = None
+                if "db_query" in results and isinstance(results["db_query"], dict):
+                    context_data = {"db_query": results["db_query"]}
+                results[tool_name] = web_search_tool(user_message, context_data)
+                
+            elif tool_name == "calculator":
+                results[tool_name] = calculator_tool(user_message, user_memo)
+                
+            elif tool_name == "memo_update":
+                results[tool_name] = memo_update_tool(json.dumps(user_memo) if user_memo else "{}")
+                
+            elif tool_name == "schedule_management":  # 새로 추가
+                results[tool_name] = schedule_management_tool(user_message, user_memo)
+                
             else:
-                return {"status": "error", "error": "일정을 찾을 수 없습니다."}
+                results[tool_name] = {"status": "error", "error": f"Unknown tool: {tool_name}"}
                 
-    except Exception as e:
-        print(f"[ERROR] 일정 수정 오류: {e}")
-        return {"status": "error", "error": str(e)}
-
-def _delete_user_schedule(schedule_id: int) -> Dict[str, Any]:
-    """일정 삭제"""
-    try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        with engine.connect() as conn:
-            # 먼저 일정 제목 조회
-            select_query = sa.text("SELECT title FROM user_schedule WHERE id = :id")
-            select_result = conn.execute(select_query, {"id": schedule_id})
-            row = select_result.fetchone()
-            
-            if not row:
-                return {"status": "error", "error": "일정을 찾을 수 없습니다."}
-            
-            title = row[0]
-            
-            # 일정 삭제
-            delete_query = sa.text("DELETE FROM user_schedule WHERE id = :id")
-            conn.execute(delete_query, {"id": schedule_id})
-            conn.commit()
-            
-            return {
-                "status": "success",
-                "message": f"일정 '{title}'이 삭제되었습니다."
-            }
-            
-    except Exception as e:
-        print(f"[ERROR] 일정 삭제 오류: {e}")
-        return {"status": "error", "error": str(e)}
-
-def _complete_user_schedule(schedule_id: int) -> Dict[str, Any]:
-    """일정 완료 처리"""
-    try:
-        from db import engine
-        import sqlalchemy as sa
-        
-        with engine.connect() as conn:
-            query = sa.text("""
-                UPDATE user_schedule 
-                SET status = 'completed', updated_at = NOW()
-                WHERE id = :id
-                RETURNING title
-            """)
-            
-            result = conn.execute(query, {"id": schedule_id})
-            conn.commit()
-            
-            updated_row = result.fetchone()
-            if updated_row:
-                title = updated_row[0]
-                return {
-                    "status": "success",
-                    "message": f"일정 '{title}'이 완료되었습니다."
-                }
-            else:
-                return {"status": "error", "error": "일정을 찾을 수 없습니다."}
+            print(f"[DEBUG] {tool_name} 툴 실행 완료: {results[tool_name].get('status', 'unknown')}")
                 
-    except Exception as e:
-        print(f"[ERROR] 일정 완료 처리 오류: {e}")
-        return {"status": "error", "error": str(e)}
-
-def _sync_memo_with_db(user_id: str, user_memo: Dict[str, Any] = None) -> Dict[str, Any]:
-    """메모와 DB 동기화"""
-    try:
-        if not user_memo:
-            return {"status": "error", "error": "메모 데이터가 없습니다."}
-        
-        # DB에서 최신 일정 조회
-        db_schedules = _get_user_schedules(user_id, limit=50)
-        
-        if db_schedules["status"] == "success":
-            # 메모의 schedule 캐시 업데이트
-            schedule_info = user_memo.get("schedule", {})
-            schedule_info["cache"] = db_schedules["schedules"]
-            schedule_info["last_sync"] = datetime.now().isoformat()
-            
-            return {
-                "status": "success",
-                "message": "메모와 DB 동기화가 완료되었습니다.",
-                "sync_count": db_schedules["count"],
-                "last_sync": schedule_info["last_sync"]
-            }
-        else:
-            return db_schedules
-            
-    except Exception as e:
-        print(f"[ERROR] 동기화 오류: {e}")
-        return {"status": "error", "error": str(e)}
+        except Exception as e:
+            print(f"[ERROR] {tool_name} 툴 실행 중 오류: {e}")
+            results[tool_name] = {"status": "error", "error": str(e)}
+    
+    return results

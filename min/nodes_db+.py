@@ -17,7 +17,7 @@ llm = ChatOpenAI(
 )
 
 def parsing_node(state) -> Dict[str, Any]:
-    """사용자 메시지의 의도를 파싱하고 필요한 툴 판단 (개인정보 키워드 감지 강화 + 일정 관리 추가)"""
+    """사용자 메시지의 의도를 파싱하고 필요한 툴 판단 (개인정보 키워드 감지 강화)"""
     last_message = state["messages"][-1].content if state["messages"] else ""
     memo = state.get("memo", {})
     
@@ -36,25 +36,16 @@ def parsing_node(state) -> Dict[str, Any]:
 
 다음을 판단해주세요:
 
-1. 의도: wedding(결혼 준비 관련), schedule(일정 관리 관련) 또는 general(일반 대화)
+1. 의도: wedding(결혼 준비 관련) 또는 general(일반 대화)
 
 **중요: 다음 개인정보/메모 관련 키워드가 포함된 경우 무조건 wedding으로 분류하고 memo_update 툴 포함:**
-- 개인정보: 이름, 나이, 살, 생년월일, 주소, 직장, 회사, 직업
+- 개인정보: 이름, 나이, 생년월일, 주소, 직장, 회사, 직업
 - 배우자정보: 남편, 아내, 남자친구, 여자친구, 배우자, 신랑, 신부, 파트너
 - 예산정보: 예산, 돈, 비용, 가격, 만원, 억, 천만원, 웨딩홀예산, 드레스예산
 - 날짜정보: 결혼, 웨딩, 예식일, 날짜, 언제, 몇월, 년도, 결혼날짜
 - 지역정보: 살아, 거주, 사는곳, 동네, 구, 시, 지역, 선호지역
 - 선호정보: 좋아해, 선호, 취향, 스타일, 타입
 - 고객유형: 시간부족, 개성추구, 합리적, 알잘딱깔센
-
-**일정 관리 키워드가 포함된 경우 schedule로 분류하고 user_db_update 툴 포함:**
-- 일정관리: 일정, 스케줄, 계획, 예약, 약속, 미팅, 상담, 견학, 방문
-- 일정조회: 보여줘, 확인해줘, 목록, 언제, 무엇, 오늘, 내일, 이번주, 다음주
-- 일정추가: 추가해줘, 등록해줘, 만들어줘, 생성, 예약잡아줘, 넣어줘
-- 일정수정: 수정해줘, 변경해줘, 바꿔줘, 업데이트
-- 일정완료: 완료, 끝났어, 다했어, 마쳤어, done
-- 일정취소: 취소해줘, 삭제해줘, 지워줘, 없애줘
-- 시간표현: 오전, 오후, 시, 분, 몇시, 몇월몇일
 
 웨딩 관련 키워드들:
 - 업체: 웨딩홀, 스튜디오(웨딩 촬영), 드레스, 메이크업, 플로리스트, 케이크, 한복
@@ -63,22 +54,32 @@ def parsing_node(state) -> Dict[str, Any]:
 - 예산: 가격, 비용, 예산, 계산
 - 기타: 결혼, 웨딩, 신부, 신랑, 하객
 
-2. 의도별 필요한 툴들 (복수 선택 가능):
+**일정 관리 관련 키워드 추가:**
+- 일정관리: "일정", "스케줄", "약속", "예약", "미팅", "할일", "task"
+- 시간정보: "내일", "다음주", "오후", "아침", "언제", "몇시", "날짜"
+- 액션: "추가해줘", "등록해줘", "확인해줘", "완료", "취소", "변경"
+- 상태: "끝났어", "했어", "완료했어", "미루기", "연기"
 
-**wedding 관련인 경우:**
-- memo_update: 개인정보/메모 관련 키워드가 있으면 **반드시 포함**
-- db_query: 다음 경우에 사용
-  * "추천해줘", "찾아줘" + 업체 유형 (드레스, 웨딩홀, 스튜디오, 메이크업)
-  * 지역 + 업체 유형 조합 ("압구정 드레스", "강남 웨딩홀")
-- web_search: 다음 경우에 반드시 사용
-  * 명시적 검색 요청: "검색", "웹서치", "찾아봐", "알아봐", "정보 알려줘"
-  * "찾아줘", "알려줘", "어때", "정보", "후기", "리뷰" 등이 포함된 모든 요청
-  * 업체명이나 고유명사가 언급된 경우
-- calculator: 예산 계산, 비용 분배, 하객수 계산 등이 필요한 경우
+일정 관리 예시:
+- "내일 드레스 피팅 예약해줘" → wedding,schedule_management,memo_update
+- "이번주 일정 확인해줘" → wedding,schedule_management
+- "예식장 예약 완료했어" → wedding,schedule_management
+- "스튜디오 촬영 일정 취소해줘" → wedding,schedule_management
 
-**schedule 관련인 경우:**
-- user_db_update: 일정 관리 키워드가 있으면 **반드시 포함**
-- memo_update: 일정 관련 개인정보가 업데이트되는 경우
+2. 필요한 툴들 (복수 선택 가능):
+   - schedule_management: 일정 추가/조회/수정/삭제 등 일정 관리 관련 요청
+   - memo_update: 개인정보/메모 관련 키워드가 있으면 **반드시 포함**
+
+   - db_query: 다음 경우에 사용
+     * "추천해줘", "찾아줘" + 업체 유형 (드레스, 웨딩홀, 스튜디오, 메이크업)
+     * 지역 + 업체 유형 조합 ("압구정 드레스", "강남 웨딩홀")
+
+   - web_search: 다음 경우에 반드시 사용
+     * 명시적 검색 요청: "검색", "웹서치", "찾아봐", "알아봐", "정보 알려줘"
+     * "찾아줘", "알려줘", "어때", "정보", "후기", "리뷰" 등이 포함된 모든 요청
+     * 업체명이나 고유명사가 언급된 경우
+   
+   - calculator: 예산 계산, 비용 분배, 하객수 계산 등이 필요한 경우
 
 예시:
 "내 이름은 민아야" → wedding,memo_update
@@ -89,18 +90,14 @@ def parsing_node(state) -> Dict[str, Any]:
 "청담역 드레스 3곳 추천해줘" → wedding,db_query,web_search
 "메이컵업바이김수 정보 알려줘" → wedding,web_search
 "5000만원 예산 분배해줘" → wedding,calculator,memo_update
-"내일 드레스샵 상담 일정 추가해줘" → schedule,user_db_update
-"이번주 일정 보여줘" → schedule,user_db_update
-"웨딩홀 견학 예약 완료했어" → schedule,user_db_update
-"다음주 화요일 2시에 스튜디오 상담 등록해줘" → schedule,user_db_update
 "안녕하세요" → general,
 
 답변 형식:
 wedding,memo_update (개인정보 저장)
-schedule,user_db_update (일정 관리)
 wedding,web_search (웹 검색만 필요)
 wedding,db_query,web_search (업체 추천 + 상세정보)
 wedding,calculator,memo_update (계산 + 메모 저장)
+wedding, (툴 불필요, 단순 질문)
 general, (일반 대화)
 
 답변:
@@ -110,13 +107,13 @@ general, (일반 대화)
         response = llm.invoke([HumanMessage(content=prompt)])
         parts = response.content.strip().split(',')
         
-        intent = "wedding" if "wedding" in parts[0].lower() else "schedule" if "schedule" in parts[0].lower() else "general"
+        intent = "wedding" if "wedding" in parts[0].lower() else "general"
         
         tools_needed = []
         if len(parts) > 1:
             for i in range(1, len(parts)):
                 tool = parts[i].strip()
-                if tool and tool in ["db_query", "calculator", "web_search", "memo_update", "user_db_update"]:
+                if tool and tool in ["db_query", "calculator", "web_search", "memo_update"]:
                     tools_needed.append(tool)
         
         # 개인정보 키워드 강제 감지 (LLM이 놓친 경우를 위한 안전장치)
@@ -133,20 +130,7 @@ general, (일반 대화)
                 tools_needed.append("memo_update")
                 print(f"[DEBUG] 개인정보 키워드 감지로 wedding + memo_update 강제 설정: {last_message}")
         
-        # 일정 관리 키워드 강제 감지
-        schedule_keywords = [
-            "일정", "스케줄", "계획", "예약", "약속", "미팅", "상담", "견학", "방문",
-            "추가해줘", "등록해줘", "만들어줘", "완료", "취소해줘", "삭제해줘",
-            "오늘", "내일", "이번주", "다음주", "몇시", "오전", "오후"
-        ]
-        
-        if any(keyword in last_message for keyword in schedule_keywords):
-            intent = "schedule"
-            if "user_db_update" not in tools_needed:
-                tools_needed.append("user_db_update")
-                print(f"[DEBUG] 일정 키워드 감지로 schedule + user_db_update 강제 설정: {last_message}")
-        
-        # 키워드 기반 자동 web_search 트리거 (wedding 의도인 경우만)
+        # 키워드 기반 자동 web_search 트리거
         if intent == "wedding":
             web_search_triggers = ["찾아줘", "알려줘", "정보", "어때", "후기", "리뷰", "검색", "웹서치"]
             if any(trigger in last_message for trigger in web_search_triggers):
@@ -171,7 +155,6 @@ general, (일반 대화)
             "tool_results": {}
         }
 
-
 def memo_check_node(state: State) -> Dict[str, Any]:
     """메모 파일을 로드하고 없으면 새로운 구조로 자동 생성"""
     user_id = os.getenv('DEFAULT_USER_ID', 'mvp-test-user')
@@ -185,7 +168,7 @@ def memo_check_node(state: State) -> Dict[str, Any]:
     current_intent = state.get("intent", "")
     tools_needed = state.get("tools_needed", [])
     
-    # 새로운 구조의 기본 메모 정의 (schedule 필드 추가)
+    # 새로운 구조의 기본 메모 정의
     default_memo = {
         "name": "",                     # 서비스 이용 고객 이름
         "birthdate": "",               # 고객 생년월일
@@ -210,12 +193,7 @@ def memo_check_node(state: State) -> Dict[str, Any]:
         "wedding_date": "",           # 웨딩 날짜
         "preferences": [],            # 취향 정보
         "confirmed_vendors": {},      # 예약 확정 업체 정보
-        "changes": [],                # 메모 변경 이력
-        "schedule": {                 # 일정 관리 추가
-            "sync_with_db": True,     # DB와 동기화 여부
-            "last_sync": "",          # 마지막 동기화 시간
-            "cache": []               # 임시 캐시 (성능용)
-        }
+        "changes": []                 # 메모 변경 이력
     }
     
     # 메모 파일 로드 또는 생성
@@ -224,19 +202,6 @@ def memo_check_node(state: State) -> Dict[str, Any]:
             # 기존 파일 로드
             with open(memo_path, 'r', encoding='utf-8') as f:
                 existing_memo = json.load(f)
-            
-            # 기존 메모에 schedule 필드가 없으면 추가
-            if "schedule" not in existing_memo:
-                existing_memo["schedule"] = {
-                    "sync_with_db": True,
-                    "last_sync": "",
-                    "cache": []
-                }
-                # 수정된 메모를 파일에 저장
-                with open(memo_path, 'w', encoding='utf-8') as f:
-                    json.dump(existing_memo, f, ensure_ascii=False, indent=2)
-                print(f"[DEBUG] 기존 메모에 schedule 필드 추가 완료")
-            
             print(f"[DEBUG] 기존 메모 파일 로드: {memo_path}")
         else:
             # 파일이 없으면 새로운 구조로 생성
@@ -383,15 +348,6 @@ def memo_update_node(state: State) -> Dict[str, Any]:
    - wedding_date: 웨딩 날짜 (예: "2024년 12월", "내년 봄")
    - preferences: 취향/선호 사항 배열 (예: ["모던스타일", "심플한 디자인"])
 
-5. 일정정보 (schedule 객체에 저장) - 새로 추가:
-   - schedule.sync_with_db: DB 동기화 설정 (기본값: true)
-   - schedule.last_sync: 마지막 동기화 시간 (자동 설정)
-   - schedule.cache: 일정 캐시 (기본값: 빈 배열)
-   
-   **일정 관련 사용자 입력이 있을 때만 schedule 정보 업데이트:**
-   - "일정 동기화 끄고 싶어" → schedule.sync_with_db: false
-   - "스케줄 자동 업데이트 켜줘" → schedule.sync_with_db: true
-
 변경사항이 없으면 빈 객체 {{}}를 반환하세요.
 새로운/변경된 정보만 JSON으로 반환하세요.
 
@@ -410,9 +366,6 @@ def memo_update_node(state: State) -> Dict[str, Any]:
 
 입력: "압구정이나 청담 쪽으로 원해"
 출력: {{"preferred_locations": ["압구정", "청담"]}}
-
-입력: "일정 자동 동기화 끄고 싶어"
-출력: {{"schedule": {{"sync_with_db": false}}}}
 
 JSON만 반환:
 """
