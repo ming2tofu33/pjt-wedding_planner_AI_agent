@@ -14,11 +14,13 @@
 - 개인 정보와 선호도를 학습하여 최적화된 웨딩 업체 추천과 일정 관리를 제공합니다.
 - 실시간 웹 검색과 데이터베이스 연동으로 최신 정보와 맞춤형 추천을 제공합니다.
 
-> ### 📚 프로젝트 심화 학습
-> <div align="center">
-> MarryRoute의 AI Agent 설계 과정과 LangGraph 아키텍처가 궁금하시다면?
-> **[📖 Notion 프로젝트 문서 바로가기](https://maroon-anaconda-f0c.notion.site/AI-Agent-Project-26bee8fffe158048970cee71fe6b9244)**
-> *프로젝트의 기술적 세부사항, 개발 과정, 아키텍처 설계 등 상세한 내용을 확인하실 수 있습니다.*
+### 📚 프로젝트 상세 문서
+<div align="center">
+MarryRoute의 AI Agent 설계 과정과 LangGraph 아키텍처가 궁금하시다면?
+
+**[📖 Notion 프로젝트 문서 바로가기](https://maroon-anaconda-f0c.notion.site/AI-Agent-Project-26bee8fffe158048970cee71fe6b9244)**
+
+*프로젝트의 기술적 세부사항, 개발 과정, 아키텍처 설계 등 상세한 내용을 확인하실 수 있습니다.*
 
 </div>
 
@@ -36,7 +38,7 @@
 
 <br>
 
-## 5. 개발 기간 및 작업 관리
+## 📅개발 기간 및 작업 관리
 
 ### 개발 기간
 
