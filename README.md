@@ -1,6 +1,6 @@
 # 💍 MarryRoute - AI 웨딩 플래너 README
 
-![MarryRoute Banner](https://via.placeholder.com/800x300/C8A96A/FFFFFF?text=💍+MarryRoute+AI+Wedding+Planner)
+![MarryRoute Banner](https://lh3.googleusercontent.com/gg/AAHar4dhhQNNhLUd6mIu2Xxqf1snk6Unq9Uz2gviv2VNvc72u7mLKSfpRwAGSlYEqfJvYl_sn5zMOBSBz6LItRE6BMXbXJQWvTHvAql1GRkIDjOYyOvNpwSYOJW_nROvjuHdN85GWGUcjB7XGc3tfP-dDAfV5E-tYWDEZcQm1JTgg5cC3lI0LZcLZleeUY6VLmNprhTTmjUVwX4CiIV4K_SvXyTvmGyy_wNo-Atobp3IkM-pfB_WUScZ0YTrXbhpumVkjbrpAz5G-8jgyKE0H-94tNYhAQgCbgTDBnPhkXnVPcy7VFOAXaUHNR4gWBtJiMy6qEne4bdW5s-1EnXSOY9Hf0rl=s1024)
 
 - 배포 URL : (배포 후 추가 예정)
 - Demo URL : `streamlit run app.py`
@@ -14,19 +14,11 @@
 - 개인 정보와 선호도를 학습하여 최적화된 웨딩 업체 추천과 일정 관리를 제공합니다.
 - 실시간 웹 검색과 데이터베이스 연동으로 최신 정보와 맞춤형 추천을 제공합니다.
 
-<br>
-
-> ## 🚀 더 알아보기
-
-> <div align="center">
-
 > ### 📚 프로젝트 심화 학습
-
+> <div align="center">
 > MarryRoute의 AI Agent 설계 과정과 LangGraph 아키텍처가 궁금하시다면?
-
 > **[📖 Notion 프로젝트 문서 바로가기](https://maroon-anaconda-f0c.notion.site/AI-Agent-Project-26bee8fffe158048970cee71fe6b9244)**
-
-> 프로젝트의 기술적 세부사항, 개발 과정, 아키텍처 설계 등 상세한 내용을 확인하실 수 있습니다.
+> *프로젝트의 기술적 세부사항, 개발 과정, 아키텍처 설계 등 상세한 내용을 확인하실 수 있습니다.*
 
 </div>
 
@@ -38,8 +30,7 @@
 
 | **배성우** | **김도민** |
 | :------: |  :------: |
-| [<img src="https://https://i.pinimg.com/736x/f1/ec/c8/f1ecc86b47a6e5789119afbbac06a4d4.jpg" height=150 width=150> <br/> @baesisi3648](https://github.com/
-baesisi3648) | [<img src="https://i.pinimg.com/736x/89/3b/7d/893b7da680e917dc234dcbf13682c9d9.jpg" height=150 width=150> <br/> @ming2tofu33](https://github.com/ming2tofu33) |
+| [<img src="https://i.pinimg.com/736x/f1/ec/c8/f1ecc86b47a6e5789119afbbac06a4d4.jpg" height=150 width=150> <br/> @baesisi3648](https://github.com/baesisi3648) | [<img src="https://i.pinimg.com/736x/89/3b/7d/893b7da680e917dc234dcbf13682c9d9.jpg" height=150 width=150> <br/> @ming2tofu33](https://github.com/ming2tofu33) |
 
 </div>
 
@@ -255,29 +246,46 @@ streamlit run app.py
 🤖마리: "드레스샵 상담 일정이 추가되었습니다..."
 ```
 
+### 4. Streamlit DEMO
+
 <details>
 <summary>🔍 더 많은 사용 예시 보기</summary>
 
 **추가 예시 1: 개인정보 입력**
-![추가 예시 1](docs/images/개인정보 입력.png)
+| 추가 예시 1 |
+|----------|
+|![개인정보 입력](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
+
 
 **추가 예시 2: 스튜디오 추천**  
-![추가 예시 2](docs/images/스튜디오 추천.png)
+| 추가 예시 2 |
+|----------|
+|![스튜디오 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
 
 **추가 예시 3: 스튜디오 웹서치**
-![추가 예시 3](docs/images/스튜디오 웹서치.png)
+| 추가 예시 3 |
+|----------|
+|![스튜디오 웹서치](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
 
 **추가 예시 4: 드레스 추천**
-![추가 예시 4](docs/images/드레스 추천.png)
+| 추가 예시 4 |
+|----------|
+|![드레스 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
 
 **추가 예시 5: 인스타그램 검색**
-![추가 예시 5](docs/images/스튜디오 웹서치.png)
+| 추가 예시 5 |
+|----------|
+|![인스타그램 검색](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/mages/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
 
 **추가 예시 6: 웨딩홀 추천**
-![추가 예시 6](docs/images/스튜디오 웹서치.png)
+| 추가 예시 6 |
+|----------|
+|![웨딩홀 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
 
 **추가 예시 7: 업체 리뷰**
-![추가 예시 7](docs/images/스튜디오 웹서치.png)
+| 추가 예시 7 |
+|----------|
+|![업체 리뷰](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
 
 </details>
 
