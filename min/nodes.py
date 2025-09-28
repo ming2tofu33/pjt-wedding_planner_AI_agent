@@ -17,20 +17,49 @@ llm = ChatOpenAI(
 )
 
 def parsing_node(state) -> Dict[str, Any]:
-    """사용자 메시지의 의도를 파싱하고 필요한 툴 판단 (개인정보 키워드 감지 강화 + 일정 관리 추가)"""
+    """사용자 메시지의 의도를 파싱하고 필요한 툴 판단 (디버깅 강화 버전)"""
     last_message = state["messages"][-1].content if state["messages"] else ""
     memo = state.get("memo", {})
     
+    print(f"[DEBUG] 원본 메시지: '{last_message}'")
+    print(f"[DEBUG] 메시지 타입: {type(last_message)}")
+    
+    # 즉시 일정 키워드 체크 (LLM 이전에)
+    schedule_keywords = [
+        "일정", "스케줄", "계획", "예약", "약속", "미팅", "상담", "견학", "방문",
+        "추가해줘", "등록해줘", "만들어줘", "생성", "예약잡아줘", "넣어줘", "잡아줘",
+        "보여줘", "확인해줘", "목록", "언제", "무엇", "오늘", "내일", "이번주", "다음주",
+        "수정해줘", "변경해줘", "바꿔줘", "업데이트", "완료", "끝났어", "done", "완성",
+        "취소해줘", "삭제해줘", "지워줘", "없애줘", "오전", "오후", "시", "분", "몇시", "몇월몇일"
+    ]
+    
+    has_schedule_keyword = any(keyword in last_message for keyword in schedule_keywords)
+    print(f"[DEBUG] 일정 키워드 감지: {has_schedule_keyword}")
+    
+    if has_schedule_keyword:
+        print(f"[DEBUG] 감지된 키워드들: {[k for k in schedule_keywords if k in last_message]}")
+    
+    # 개인정보 키워드 체크
+    personal_info_keywords = [
+        "이름", "나이", "살", "생년월일", "주소", "직장", "회사", "직업",
+        "남편", "아내", "남자친구", "여자친구", "배우자", "신랑", "신부", "파트너",
+        "예산", "만원", "억", "천만원", "결혼날짜", "예식일", "언제", "몇월",
+        "살아", "거주", "사는곳", "동네", "좋아해", "선호", "취향", "스타일"
+    ]
+    
+    has_personal_keyword = any(keyword in last_message for keyword in personal_info_keywords)
+    print(f"[DEBUG] 개인정보 키워드 감지: {has_personal_keyword}")
+    
     # 이전 대화에서 언급된 업체명들을 추출 (컨텍스트 활용)
     previous_context = ""
-    if len(state["messages"]) > 2:  # 이전 대화가 있다면
-        recent_messages = state["messages"][-4:]  # 최근 4개 메시지 확인
+    if len(state["messages"]) > 2:
+        recent_messages = state["messages"][-4:]
         for msg in recent_messages:
             if hasattr(msg, 'content') and msg.content and isinstance(msg.content, str):
                 previous_context += msg.content + " "
     
     prompt = f"""
-메시지: {last_message}
+사용자 메시지: {last_message}
 현재 메모: {json.dumps(memo, ensure_ascii=False)}
 최근 대화 컨텍스트: {previous_context}
 
@@ -38,32 +67,28 @@ def parsing_node(state) -> Dict[str, Any]:
 
 1. 의도: wedding(결혼 준비 관련), schedule(일정 관리 관련) 또는 general(일반 대화)
 
-**중요: 다음 개인정보/메모 관련 키워드가 포함된 경우 무조건 wedding으로 분류하고 memo_update 툴 포함:**
+**중요: 다음 일정 관리 키워드가 포함된 경우 무조건 schedule로 분류하고 user_db_update 툴 포함:**
+- 일정관리: 일정, 스케줄, 계획, 예약, 약속, 미팅, 상담, 견학, 방문
+- 일정조회: 보여줘, 확인해줘, 목록, 언제, 무엇, 오늘, 내일, 이번주, 다음주
+- 일정추가: 추가해줘, 등록해줘, 만들어줘, 생성, 예약잡아줘, 넣어줘, 잡아줘
+- 일정수정: 수정해줘, 변경해줘, 바꿔줘, 업데이트
+- 일정완료: 완료, 끝났어, 다했어, 마쳤어, done
+- 일정취소: 취소해줘, 삭제해줘, 지워줘, 없애줘
+- 시간표현: 오전, 오후, 시, 분, 몇시, 몇월몇일
+
+**개인정보/메모 관련 키워드가 포함된 경우 wedding으로 분류하고 memo_update 툴 포함:**
 - 개인정보: 이름, 나이, 살, 생년월일, 주소, 직장, 회사, 직업
 - 배우자정보: 남편, 아내, 남자친구, 여자친구, 배우자, 신랑, 신부, 파트너
 - 예산정보: 예산, 돈, 비용, 가격, 만원, 억, 천만원, 웨딩홀예산, 드레스예산
 - 날짜정보: 결혼, 웨딩, 예식일, 날짜, 언제, 몇월, 년도, 결혼날짜
 - 지역정보: 살아, 거주, 사는곳, 동네, 구, 시, 지역, 선호지역
 - 선호정보: 좋아해, 선호, 취향, 스타일, 타입
-- 고객유형: 시간부족, 개성추구, 합리적, 알잘딱깔센
-
-**일정 관리 키워드가 포함된 경우 schedule로 분류하고 user_db_update 툴 포함:**
-- 일정관리: 일정, 스케줄, 계획, 예약, 약속, 미팅, 상담, 견학, 방문
-- 일정조회: 보여줘, 확인해줘, 목록, 언제, 무엇, 오늘, 내일, 이번주, 다음주
-- 일정추가: 추가해줘, 등록해줘, 만들어줘, 생성, 예약잡아줘, 넣어줘
-- 일정수정: 수정해줘, 변경해줘, 바꿔줘, 업데이트
-- 일정완료: 완료, 끝났어, 다했어, 마쳤어, done
-- 일정취소: 취소해줘, 삭제해줘, 지워줘, 없애줘
-- 시간표현: 오전, 오후, 시, 분, 몇시, 몇월몇일
-
-웨딩 관련 키워드들:
-- 업체: 웨딩홀, 스튜디오(웨딩 촬영), 드레스, 메이크업, 플로리스트, 케이크, 한복
-- 장소: 압구정, 강남, 홍대 등 + "스튜디오/웨딩홀" 조합
-- 행동: 추천, 찾기, 예약, 견적, 비교, 검색, 웹서치
-- 예산: 가격, 비용, 예산, 계산
-- 기타: 결혼, 웨딩, 신부, 신랑, 하객
 
 2. 의도별 필요한 툴들 (복수 선택 가능):
+
+**schedule 관련인 경우:**
+- user_db_update: 일정 관리 키워드가 있으면 **반드시 포함**
+- memo_update: 일정 관련 개인정보가 업데이트되는 경우
 
 **wedding 관련인 경우:**
 - memo_update: 개인정보/메모 관련 키워드가 있으면 **반드시 포함**
@@ -76,28 +101,19 @@ def parsing_node(state) -> Dict[str, Any]:
   * 업체명이나 고유명사가 언급된 경우
 - calculator: 예산 계산, 비용 분배, 하객수 계산 등이 필요한 경우
 
-**schedule 관련인 경우:**
-- user_db_update: 일정 관리 키워드가 있으면 **반드시 포함**
-- memo_update: 일정 관련 개인정보가 업데이트되는 경우
-
 예시:
-"내 이름은 민아야" → wedding,memo_update
-"나는 25살이야" → wedding,memo_update
-"우리 예산은 5000만원이야" → wedding,memo_update
-"강남에 살아" → wedding,memo_update
-"신랑은 회사원이야" → wedding,memo_update
-"청담역 드레스 3곳 추천해줘" → wedding,db_query,web_search
-"메이컵업바이김수 정보 알려줘" → wedding,web_search
-"5000만원 예산 분배해줘" → wedding,calculator,memo_update
-"내일 드레스샵 상담 일정 추가해줘" → schedule,user_db_update
+"내일 오후 2시에 드레스샵 상담 일정 잡아줘" → schedule,user_db_update
 "이번주 일정 보여줘" → schedule,user_db_update
 "웨딩홀 견학 예약 완료했어" → schedule,user_db_update
-"다음주 화요일 2시에 스튜디오 상담 등록해줘" → schedule,user_db_update
+"내 이름은 민아야" → wedding,memo_update
+"압구정 드레스 3곳 추천해줘" → wedding,db_query,web_search
+"메이컵업바이김수 정보 알려줘" → wedding,web_search
+"5000만원 예산 분배해줘" → wedding,calculator,memo_update
 "안녕하세요" → general,
 
 답변 형식:
-wedding,memo_update (개인정보 저장)
 schedule,user_db_update (일정 관리)
+wedding,memo_update (개인정보 저장)
 wedding,web_search (웹 검색만 필요)
 wedding,db_query,web_search (업체 추천 + 상세정보)
 wedding,calculator,memo_update (계산 + 메모 저장)
@@ -107,8 +123,14 @@ general, (일반 대화)
 """
     
     try:
+        print(f"[DEBUG] LLM에게 보내는 프롬프트 일부: {prompt[:200]}...")
+        
         response = llm.invoke([HumanMessage(content=prompt)])
-        parts = response.content.strip().split(',')
+        response_content = response.content.strip()
+        
+        print(f"[DEBUG] LLM 원본 응답: '{response_content}'")
+        
+        parts = response_content.split(',')
         
         intent = "wedding" if "wedding" in parts[0].lower() else "schedule" if "schedule" in parts[0].lower() else "general"
         
@@ -119,32 +141,20 @@ general, (일반 대화)
                 if tool and tool in ["db_query", "calculator", "web_search", "memo_update", "user_db_update"]:
                     tools_needed.append(tool)
         
-        # 개인정보 키워드 강제 감지 (LLM이 놓친 경우를 위한 안전장치)
-        personal_info_keywords = [
-            "이름", "나이", "살", "생년월일", "주소", "직장", "회사", "직업",
-            "남편", "아내", "남자친구", "여자친구", "배우자", "신랑", "신부", "파트너",
-            "예산", "만원", "억", "천만원", "결혼날짜", "예식일", "언제", "몇월",
-            "살아", "거주", "사는곳", "동네", "좋아해", "선호", "취향", "스타일"
-        ]
+        print(f"[DEBUG] 파싱된 Intent: {intent}")
+        print(f"[DEBUG] 파싱된 Tools: {tools_needed}")
         
-        if any(keyword in last_message for keyword in personal_info_keywords):
-            intent = "wedding"
-            if "memo_update" not in tools_needed:
-                tools_needed.append("memo_update")
-                print(f"[DEBUG] 개인정보 키워드 감지로 wedding + memo_update 강제 설정: {last_message}")
-        
-        # 일정 관리 키워드 강제 감지
-        schedule_keywords = [
-            "일정", "스케줄", "계획", "예약", "약속", "미팅", "상담", "견학", "방문",
-            "추가해줘", "등록해줘", "만들어줘", "완료", "취소해줘", "삭제해줘",
-            "오늘", "내일", "이번주", "다음주", "몇시", "오전", "오후"
-        ]
-        
-        if any(keyword in last_message for keyword in schedule_keywords):
+        # 강제 키워드 감지 (LLM이 놓친 경우를 위한 안전장치)
+        if has_schedule_keyword:
             intent = "schedule"
             if "user_db_update" not in tools_needed:
                 tools_needed.append("user_db_update")
-                print(f"[DEBUG] 일정 키워드 감지로 schedule + user_db_update 강제 설정: {last_message}")
+                print(f"[DEBUG] 일정 키워드 감지로 schedule + user_db_update 강제 설정")
+        
+        if has_personal_keyword and intent == "wedding":
+            if "memo_update" not in tools_needed:
+                tools_needed.append("memo_update")
+                print(f"[DEBUG] 개인정보 키워드 감지로 memo_update 강제 추가")
         
         # 키워드 기반 자동 web_search 트리거 (wedding 의도인 경우만)
         if intent == "wedding":
@@ -152,10 +162,9 @@ general, (일반 대화)
             if any(trigger in last_message for trigger in web_search_triggers):
                 if "web_search" not in tools_needed:
                     tools_needed.append("web_search")
-                    print(f"[DEBUG] 키워드 트리거로 web_search 자동 추가: {last_message}")
+                    print(f"[DEBUG] 키워드 트리거로 web_search 자동 추가")
         
-        print(f"[DEBUG] Intent: {intent}, Tools: {tools_needed}")
-        print(f"[DEBUG] Original message: {last_message}")
+        print(f"[DEBUG] 최종 Intent: {intent}, Tools: {tools_needed}")
         
         return {
             "intent": intent,
@@ -164,12 +173,28 @@ general, (일반 대화)
         }
         
     except Exception as e:
-        print(f"Intent parsing 오류: {e}")
-        return {
-            "intent": "general",
-            "tools_needed": [],
-            "tool_results": {}
-        }
+        print(f"[ERROR] Intent parsing 오류: {e}")
+        print(f"[ERROR] 오류 발생 시 기본값으로 설정")
+        
+        # 오류 발생 시 키워드 기반으로 기본 설정
+        if has_schedule_keyword:
+            return {
+                "intent": "schedule",
+                "tools_needed": ["user_db_update"],
+                "tool_results": {}
+            }
+        elif has_personal_keyword:
+            return {
+                "intent": "wedding", 
+                "tools_needed": ["memo_update"],
+                "tool_results": {}
+            }
+        else:
+            return {
+                "intent": "general",
+                "tools_needed": [],
+                "tool_results": {}
+            }
 
 
 def memo_check_node(state: State) -> Dict[str, Any]:
