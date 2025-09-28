@@ -1,259 +1,349 @@
-# 🤖 LangGraph 웨딩 플래너 - ChatOpenAI 버전
+# 💍 MarryRoute - AI 웨딩 플래너 README
 
-**ChatOpenAI를 최대한 활용**하는 지능적인 결혼 준비 AI 도우미입니다.  
-LangGraph + LangChain 상태 머신을 바탕으로, 예산·일정·체크리스트·업체 추천을 자동화합니다.
+![MarryRoute Banner](https://via.placeholder.com/800x300/C8A96A/FFFFFF?text=💍+MarryRoute+AI+Wedding+Planner)
 
----
+- 배포 URL : (배포 후 추가 예정)
+- Demo URL : `streamlit run app.py`
 
-## 🚀 주요 특징
+<br>
 
-### LLM 최대 활용
-```python
-# 기본 LLM 설정
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+## 🚀 프로젝트 소개
 
-class ParsingResult(BaseModel):
-    intent: str
-    slots: dict
+- **MarryRoute**는 AI 기술을 활용한 개인 맞춤형 웨딩 플래너 서비스입니다.
+- 웨딩 준비의 모든 과정을 AI 어시스턴트 '마리'와 함께 체계적으로 관리할 수 있습니다.
+- 개인 정보와 선호도를 학습하여 최적화된 웨딩 업체 추천과 일정 관리를 제공합니다.
+- 실시간 웹 검색과 데이터베이스 연동으로 최신 정보와 맞춤형 추천을 제공합니다.
 
-llm = ChatOpenAI(model='gpt-4o', temperature=0)
+<br>
 
-# 구조화된 출력 활용
-structured_llm = llm.with_structured_output(ParsingResult)
-result = structured_llm.invoke([
-    {"role": "user", "content": "강남에서 예산 5천으로 예식장 추천"}
-])
-```
+> ## 🚀 더 알아보기
 
-### 지능적 노드 시스템
-- **parsing_node**: LLM으로 사용자 의도/슬롯 정확 분석
-- **conditional_router**: 상태·컨텍스트 기반 라우팅 결정
-- **tool_execution_node**: LLM이 도구 매개변수 생성 → 실행
-- **response_generation_node**: 결과를 맥락적으로 요약/후속질문 생성
+> <div align="center">
 
-### 스마트 도구들
-- **web_search_tool**: LLM 검색 쿼리 최적화 & 최신성 반영
-- **calculator_tool**: 한국어 수식/퍼센트 해석
-- **db_query_tool**: 자연어 → SQL 자동 생성 및 결과 해석
-- **user_db_update_tool**: 대화 로그 기반 사용자 프로필/선호 업데이트 검증
+> ### 📚 프로젝트 심화 학습
 
----
+> MarryRoute의 AI Agent 설계 과정과 LangGraph 아키텍처가 궁금하시다면?
 
-## 📦 설치 및 설정
+> **[📖 Notion 프로젝트 문서 바로가기](https://maroon-anaconda-f0c.notion.site/AI-Agent-Project-26bee8fffe158048970cee71fe6b9244)**
 
-### 1) 의존성 설치
-```bash
-pip install -r requirements.txt
-```
+> 프로젝트의 기술적 세부사항, 개발 과정, 아키텍처 설계 등 상세한 내용을 확인하실 수 있습니다.
 
-### 2) 환경 변수 설정
-프로젝트 루트에 `.env` 파일을 생성하고 값 기입:
-```env
-# OpenAI API 설정
-OPENAI_API_KEY=your_openai_api_key_here
-LLM_MODEL=gpt-4o
+</div>
 
-# 데이터베이스 설정 (옵션)
-DATABASE_URL=sqlite:///wedding_planner.db
+<br>
 
-# 로그 레벨 (옵션: DEBUG/INFO/WARN/ERROR)
-LOG_LEVEL=INFO
-```
+## 👥 팀원 구성
 
-### 3) 데이터베이스 초기화 (필요시)
-```python
-from db import initialize_db
-initialize_db()
-```
+<div align="center">
 
----
+| **배성우** | **김도민** |
+| :------: |  :------: |
+| [<img src="https://https://i.pinimg.com/736x/f1/ec/c8/f1ecc86b47a6e5789119afbbac06a4d4.jpg" height=150 width=150> <br/> @baesisi3648](https://github.com/
+baesisi3648) | [<img src="https://i.pinimg.com/736x/89/3b/7d/893b7da680e917dc234dcbf13682c9d9.jpg" height=150 width=150> <br/> @ming2tofu33](https://github.com/ming2tofu33) |
 
-## 🎯 실행 방법
+</div>
 
-### 대화형 챗봇 모드
-```bash
-python main.py
-# 프롬프트에서: 1 (interactive)
-```
+<br>
 
-### 테스트 시나리오 실행
-```bash
-python main.py
-# 프롬프트에서: 2 (test)
-```
+## 5. 개발 기간 및 작업 관리
 
-### 단일 쿼리 테스트
-```bash
-python main.py
-# 프롬프트에서: 3 (single)
-```
+### 개발 기간
 
----
+- 전체 개발 기간 : 2025-12-09 ~ 2022-12-31
 
-## 💬 사용 예시
+<br>
 
-### 웨딩홀 추천
-```
-👤 You: 강남에서 예산 5000만원으로 웨딩홀 추천해주세요
+## ✅ 주요 기능
 
-🤖 AI: 강남 지역에서 예산 5000만원에 맞는 웨딩홀을 찾아드렸어요! 
+### 🤖 AI 웨딩 플래너 '마리'
+- **대화형 인터페이스**: 자연어로 웨딩 준비 상담 가능
+- **개인화 서비스**: 예산, 취향, 지역 등 개인 정보 기반 맞춤 추천
+- **실시간 학습**: 대화를 통해 사용자 선호도를 지속적으로 학습
 
-추천 웨딩홀:
-1. 강남 그랜드 웨딩홀 - 4800만원, 200명 수용
-2. 압구정 로얄홀 - 4500만원, 180명 수용
-3. 청담 프리미엄홀 - 4900만원, 220명 수용
+### 🏢 스마트 업체 추천
+- **데이터베이스 연동**: 웨딩홀, 스튜디오, 드레스, 메이크업 업체 정보
+- **지역별 검색**: 지하철역, 지역명 기반 업체 검색
+- **예산 맞춤**: 설정한 예산 범위 내 업체 필터링
+- **실시간 정보**: 웹 검색을 통한 최신 업체 정보 및 후기
 
-각 홀의 특징과 장단점도 자세히 설명드릴까요?
-```
+### 📅 일정 관리 시스템
+- **통합 스케줄링**: 웨딩 준비 일정을 체계적으로 관리
+- **카테고리별 분류**: 웨딩홀, 드레스, 사진촬영 등 카테고리별 일정 구분
+- **진행 상황 추적**: 예정, 진행중, 완료, 취소 등 상태별 관리
+- **데이터베이스 동기화**: PostgreSQL과 연동하여 안전한 데이터 저장
 
-### 예산 계산
-```
-👤 You: 총 예산 8000만원에서 웨딩홀 60%, 스튜디오 15% 쓰면 각각 얼마죠?
+### 💰 예산 관리
+- **카테고리별 예산**: 웨딩홀, 드레스, 스튜디오 등 항목별 예산 설정
+- **실시간 계산**: AI 계산기를 통한 예산 분배 및 비용 계산
+- **시각화**: 도넛 차트를 통한 예산 사용 현황 시각화
 
-🤖 AI: 예산 계산 결과입니다:
+### 🔍 통합 검색
+- **다중 검색**: 내부 데이터베이스 + 웹 검색 동시 지원
+- **맥락 인식**: 이전 대화 내용을 고려한 검색 결과 제공
+- **업체 상세 정보**: 가격, 위치, 연락처, 특징 등 종합 정보
 
-💰 총 예산: 8,000만원
-- 웨딩홀 (60%): 4,800만원
-- 스튜디오 (15%): 1,200만원
-- 남은 예산 (25%): 2,000만원
-
-남은 2,000만원으로 드레스, 메이크업, 혼수 등을 준비하시면 됩니다.
-```
-
-### 프로필 업데이트
-```
-👤 You: 하객수를 150명으로 변경해주세요
-
-🤖 AI: ✅ 하객수가 150명으로 업데이트되었습니다!
-
-이제 150명 기준으로 웨딩홀과 예산을 다시 계산해드릴까요?
-예상 식비: 150명 × 5만원 = 750만원
-```
-
----
+<br>
 
 ## 🔧 기술 스택
 
-### Core Framework
-- **LangGraph**: 그래프 기반 상태 관리
-- **LangChain**: LLM 체인/도구 통합
-- **ChatOpenAI**: GPT-4o 직접 활용
+### Backend
+- **Python 3.8+**: 메인 개발 언어
+- **LangGraph**: 대화 플로우 및 AI 워크플로우 관리
+- **OpenAI GPT-4**: 자연어 처리 및 대화 생성
+- **PostgreSQL**: 업체 정보 및 사용자 일정 데이터 저장
+- **psycopg2**: ORM 및 데이터베이스 연동
+- **Tavily API**: 실시간 웹 검색
 
-### LLM 활용 방식
-```python
-# 기본 호출
-response = llm.invoke([{"role": "user", "content": "예식장 예약 상태 보여줘"}])
+### Frontend
+- **Streamlit**: 웹 인터페이스 및 사용자 경험
+- **CSS Styling**: 커스텀 디자인 시스템
+- **Interactive Components**: 차트, 폼, 버튼 등 인터랙티브 요소
 
-# 구조화된 출력
-from pydantic import BaseModel
-class MyDataClass(BaseModel):
-    field_a: str
-    field_b: int
+### AI & ML
+- **LangChain**: LLM 체인 및 도구 통합
+- **Conversational AI**: 컨텍스트 인식 대화 시스템
+- **Memory Management**: 사용자별 개인화 정보 저장
 
-structured_llm = llm.with_structured_output(MyDataClass)
-result = structured_llm.invoke([
-    {"role": "system", "content": "역할: 웨딩 플래너"},
-    {"role": "user", "content": "예산 배분 6:2:2로 계산"}
-])
+### DevOps & Tools
+- **Environment Management**: .env 파일을 통한 환경 변수 관리
+- **Git**: 버전 관리
+- **Requirements Management**: pip를 통한 의존성 관리
 
-# 용도별 LLM
-parsing_llm = ChatOpenAI(model='gpt-4o-mini', temperature=0)  # 정확성 우선
-creative_llm = ChatOpenAI(model='gpt-4o', temperature=0.3)    # 창의성 허용
-```
+<br>
 
----
-
-## 📁 파일 구조
-> 최소 실행 예시 구조 (예시는 상황에 맞게 조정하세요)
+## 📁 프로젝트 구조
 
 ```
-wedding-planner/
-├── main.py              # 메인 실행 (CLI 메뉴: interactive/test/single)
-├── nodes.py             # LLM 기반 노드 함수들 (parsing/router/tool/response)
-├── tools.py             # web/db/calculator 등 도구 정의
-├── state.py             # 그래프 상태/메모리 관리
-├── db.py                # DB 연결 및 ORM/쿼리
-├── requirements.txt     # 의존성
-├── .env                 # 환경 변수 (개인용)
-└── README.md            # 이 파일
-```
-- (선택) `/src/MarryRouteReactApp.tsx` 웹 UI 프로토타입 포함 가능
+├── README.md
+├── .gitignore
+├── .env
+├── requirements.txt
+├── bae                     # 개인 작업 폴더
+├── min                     # 개인 작업 폴더
+│
+├── docs/
+│   └── images/             # demo images
+│
+└── src/
+    ├── README.md
+    ├── requirements.txt
+    ├── .env                 # 환경 변수 (API 키, DB 연결 정보)
+    ├── .gitignore
+    ├── langgraph.json       # LangGraph 설정
+    │
+    ├── app.py               # Streamlit 메인 애플리케이션
+    ├── graph.py             # LangGraph 워크플로우 정의
+    ├── state.py             # 대화 상태 관리
+    ├── nodes.py             # 대화 플로우 노드 구현
+    ├── routers.py           # 라우팅 로직
+    ├── tools.py             # AI 도구 (DB 쿼리, 웹 검색, 계산기 등)
+    ├── db.py                # 데이터베이스 연결 및 관리
+    │
+    ├── memories/            # 사용자별 메모리 저장
+    │   └── user_id.json
+    ├── streamlit/           # Streamlit 관련 파일
+    ├── __pycache__/         # Python 캐시
+    └── venv/                # 가상환경
 
----
-
-## 🎨 주요 개선사항 (15-code_interpreter 방식 → ChatOpenAI 전환)
-
-### Before (OpenAI Client 직접 사용)
-```python
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": prompt}]
-)
-result = json.loads(response.choices[0].message.content)
-```
-
-### After (ChatOpenAI + 구조화된 출력)
-```python
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(model='gpt-4o', temperature=0)
-structured_llm = llm.with_structured_output(ParsingResult)
-result = structured_llm.invoke([
-    {"role": "system", "content": system_prompt},
-    {"role": "user", "content": user_input}
-])
 ```
 
-- ✅ 응답 파싱 안정성 향상 (Pydantic 스키마로 바로 검증)
-- ✅ 노드 간 I/O 규격화 → 유지보수/테스트 용이
-- ✅ 프롬프트 관리 단순화 (역할/컨텍스트 명확화)
+<br>
 
----
+## 📦 설치 및 설정
 
-## 🔍 디버깅 & 모니터링
+### 1. 환경 설정
 
-### 상태 확인 (샘플)
+```bash
+# 레포지토리 클론
+git clone [repository-url]
+cd MarryRoute
+
+# 가상환경 생성 및 활성화
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 의존성 설치
+pip install -r requirements.txt
 ```
-👤 You: 상태확인
 
-🔍 현재 시스템 상태:
-  - LLM 모델: gpt-4o
-  - ChatOpenAI 사용: ✅
-  - 메모리: 활성화
+### 2. 환경 변수 설정
+
+`.env` 파일을 생성하고 다음 변수들을 설정하세요:
+
+```env
+# OpenAI API
+OPENAI_API_KEY=your_openai_api_key
+
+# Tavily (웹 검색) API
+TAVILY_API_KEY=your_tavily_api_key
+
+# PostgreSQL 데이터베이스
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=wedding_db
+POSTGRES_USER=your_username
+POSTGRES_PASSWORD=your_password
+
+# 기본 사용자 ID
+DEFAULT_USER_ID=mvp-test-user
 ```
-- 노드별 로깅: 각 노드 진입/출력/에러를 로그로 기록
-- 트레이싱: LangSmith/LangChain 텔레메트리(옵션)로 호출 추적
 
-### 트러블슈팅 팁
-- .env 누락 → `OPENAI_API_KEY` 확인
-- DB 초기화 누락 → `initialize_db()` 또는 마이그레이션 스크립트 실행
-- 구조화 출력 오류 → Pydantic 스키마/필드명 재확인
+### 3. 데이터베이스 설정
 
----
+PostgreSQL 데이터베이스에 다음 테이블들이 필요합니다:
 
-## 🤝 기여 & 개선 로드맵
-1) **더 많은 구조화된 출력** 적용으로 파싱 안정화  
-2) **도구별 전문 LLM** 세분화(Parsing/Creative/Tool-Reasoner)  
-3) **컨텍스트/메모리 관리** 고도화 (프로필·예산·일정 동기화)  
-4) **멀티모달**: 이미지 무드보드/드레스 매칭(차차 추가)  
+- `wedding_hall`: 웨딩홀 정보
+- `studio`: 스튜디오 정보  
+- `wedding_dress`: 드레스 업체 정보
+- `makeup`: 메이크업 업체 정보
+- `user_schedule`: 사용자 일정 관리
 
----
+### 4. 애플리케이션 실행
 
-## 📞 지원
-이메일: contact@marryroute.com (예정)
-개발자: 배&민 공동 개발 🛵 
+```bash
+streamlit run app.py
+```
 
-이슈/피드백은 PR 또는 Issue로 남겨주세요.  
-서비스화에 맞춰 웹 UI(React)·알림(캘린더/메신저)·실시간 지출 알림을 순차 탑재 예정입니다.
+브라우저에서 `http://localhost:8501`로 접속하여 서비스를 이용할 수 있습니다.
 
+<br>
+
+## ⚙️ 주요 컴포넌트
+
+### AI 대화 플로우 (LangGraph)
+1. **parsing_node**: 사용자 의도 파싱 및 필요 도구 판단
+2. **memo_check_node**: 사용자 메모리 로드 및 관리
+3. **tool_execution_node**: 필요한 도구들 실행
+4. **memo_update_node**: 사용자 정보 업데이트
+5. **response_generation_node**: 최종 응답 생성
+6. **general_response_node**: 일반 대화 응답
+
+### 도구 시스템 (Tools)
+- **db_query_tool**: 웨딩 업체 데이터베이스 검색
+- **web_search_tool**: Tavily API를 통한 실시간 웹 검색
+- **calculator_tool**: 웨딩 예산 및 비용 계산
+- **memo_update_tool**: 사용자 정보 저장
+- **user_db_update_tool**: 일정 관리 (CRUD)
+
+### 사용자 인터페이스
+- **AI 채팅**: 마리와의 대화형 상담
+- **홈 대시보드**: D-day, 예산 현황, 진행률, 추천 업체
+- **업체 검색**: 카테고리별 필터링 및 상세 정보
+- **일정 관리**: 타임라인 뷰 및 일정 추가/수정
+- **예산 관리**: 카테고리별 예산 배분 및 사용 현황
+
+<br>
+
+## 사용 예시
+
+### 1. 기본 정보 입력
+```
+👤 사용자: "내 이름은 김민아이고, 예산은 5000만원 정도예요"
+🤖 마리:  "안녕하세요 민아님! 5000만원 예산으로 멋진 웨딩을 준비해보세요..."
+```
+
+### 2. 업체 추천 요청
+```
+👤사용자: "강남 지역 웨딩홀 3곳 추천해주세요"
+🤖마리: "강남 지역의 예산에 맞는 웨딩홀을 찾아드릴게요..."
+[DB 검색 + 웹 검색 결과 제공]
+```
+
+### 3. 일정 관리
+```
+👤사용자: "내일 오후 2시에 드레스샵 상담 일정 잡아주세요"
+🤖마리: "드레스샵 상담 일정이 추가되었습니다..."
+```
+
+<details>
+<summary>🔍 더 많은 사용 예시 보기</summary>
+
+**추가 예시 1: 개인정보 입력**
+![추가 예시 1](docs/images/개인정보 입력.png)
+
+**추가 예시 2: 스튜디오 추천**  
+![추가 예시 2](docs/images/스튜디오 추천.png)
+
+**추가 예시 3: 스튜디오 웹서치**
+![추가 예시 3](docs/images/스튜디오 웹서치.png)
+
+**추가 예시 4: 드레스 추천**
+![추가 예시 4](docs/images/드레스 추천.png)
+
+**추가 예시 5: 인스타그램 검색**
+![추가 예시 5](docs/images/스튜디오 웹서치.png)
+
+**추가 예시 6: 웨딩홀 추천**
+![추가 예시 6](docs/images/스튜디오 웹서치.png)
+
+**추가 예시 7: 업체 리뷰**
+![추가 예시 7](docs/images/스튜디오 웹서치.png)
+
+</details>
+
+<br>
+
+## 💡 개발 포인트
+
+### 🎯 핵심 기능
+- **컨텍스트 인식**: 이전 대화 내용을 기억하여 맞춤형 응답 제공
+- **멀티모달 검색**: 내부 DB와 외부 웹 검색 결과를 통합하여 제공
+- **실시간 학습**: 사용자와의 대화를 통해 선호도를 지속적으로 학습
+- **상태 관리**: LangGraph를 활용한 복잡한 대화 플로우 관리
+
+### 🔧 기술적 도전
+- **비동기 처리**: 다중 도구 실행 시 성능 최적화
+- **메모리 관리**: 사용자별 개인화 정보의 효율적 저장 및 조회
+- **오류 처리**: 외부 API 연동 시 안정성 확보
+- **사용자 경험**: Streamlit을 활용한 직관적인 UI/UX 구현
+
+<br>
+
+## 🌱 향후 개선 계획
+
+### 📈 기능 확장
+- [ ] 실제 업체와의 예약 연동 시스템
+- [ ] 웨딩 체크리스트 자동 생성
+- [ ] 예산 알림 및 추천 시스템
+- [ ] 모바일 반응형 디자인
+- [ ] 다중 사용자 지원 (커플 공동 계정)
+
+### 🚀 성능 최적화
+- [ ] 데이터베이스 쿼리 최적화
+- [ ] 캐싱 시스템 도입
+- [ ] API 응답 속도 개선
+- [ ] 메모리 사용량 최적화
+
+### 🔐 보안 강화
+- [ ] 사용자 인증 시스템
+- [ ] 개인정보 암호화
+- [ ] API 키 보안 강화
+- [ ] 데이터 백업 시스템
+
+<br>
 
 ## 📄 라이선스
 
-이 프로젝트는 현재 개발 중이며, 라이선스는 추후 결정될 예정입니다.
+이 프로젝트는 [MIT License](LICENSE)를 따릅니다.
 
+<br>
 
-**💡 핵심**: _ChatOpenAI를 직접 사용하여 LLM의 능력을 최대한 끌어내는 것_ — 이것이 본 프로젝트의 목표입니다!
+## 🤝 기여하기
 
-*"결혼 준비의 모든 스트레스를 덜어내고, 두 사람만의 특별한 순간에 집중할 수 있도록 돕겠습니다."* - 마리 🤖💕
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+<br>
+
+## 연락처
+
+프로젝트 관련 문의: [contact@marryroute.com]
+
+프로젝트 링크: [https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent]
+
+---
+
+💍 **"결혼 준비의 모든 스트레스를 덜어내고, 두 사람만의 특별한 순간에 집중할 수 있도록 돕겠습니다."**  - 마리 🤖💕 💍
