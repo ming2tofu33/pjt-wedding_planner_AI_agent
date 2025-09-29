@@ -250,8 +250,7 @@ streamlit run app.py
 
 ### 4. Streamlit DEMO
 
-<details>
-<summary>🔍 더 많은 사용 예시 보기</summary>
+🔍 더 많은 사용 예시 보기
 
 **추가 예시 1: 개인정보 입력**
 | 추가 예시 1 |
@@ -262,34 +261,37 @@ streamlit run app.py
 **추가 예시 2: 스튜디오 추천**  
 | 추가 예시 2 |
 |----------|
-|![스튜디오 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
+|![스튜디오 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EC%8A%A4%ED%8A%9C%EB%94%94%EC%98%A4%20%EC%B6%94%EC%B2%9C.gif)|
 
 **추가 예시 3: 스튜디오 웹서치**
 | 추가 예시 3 |
 |----------|
-|![스튜디오 웹서치](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
+|![스튜디오 웹서치](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EC%8A%A4%ED%8A%9C%EB%94%94%EC%98%A4%20%EC%9B%B9%EC%84%9C%EC%B9%98.gif)|
 
 **추가 예시 4: 드레스 추천**
 | 추가 예시 4 |
 |----------|
-|![드레스 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
+|![드레스 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EB%93%9C%EB%A0%88%EC%8A%A4%20%EC%B6%94%EC%B2%9C.gif)|
 
 **추가 예시 5: 인스타그램 검색**
 | 추가 예시 5 |
 |----------|
-|![인스타그램 검색](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/mages/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
+|![인스타그램 검색](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EC%9D%B8%EC%8A%A4%ED%83%80%EA%B7%B8%EB%9E%A8%20%EA%B2%80%EC%83%89.gif)|
 
 **추가 예시 6: 웨딩홀 추천**
 | 추가 예시 6 |
 |----------|
-|![웨딩홀 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
+|![웨딩홀 추천](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EC%9B%A8%EB%94%A9%ED%99%80%20%EC%B6%94%EC%B2%9C.gif)|
 
 **추가 예시 7: 업체 리뷰**
 | 추가 예시 7 |
 |----------|
-|![업체 리뷰](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%9E%85%EB%A0%A5.gif?raw=true)|
+|![업체 리뷰](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EC%97%85%EC%B2%B4%20%EB%A6%AC%EB%B7%B0.gif)|
 
-</details>
+**추가 예시 8: 상세보기 찜**
+| 추가 예시 8 |
+|----------|
+|![상세보기 찜](https://github.com/ming2tofu33/pjt-wedding_planner_AI_agent/blob/main/docs/images/%EC%83%81%EC%84%B8%EB%B3%B4%EA%B8%B0%2C%EC%B0%9C.gif)|
 
 <br>
 
